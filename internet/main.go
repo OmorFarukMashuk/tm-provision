@@ -1,0 +1,138 @@
+package main
+
+/*
+
+Scaffolding code to make your service.  Replace this with a description of what your service does
+
+*/
+
+import (
+	//"bson"
+	"flag"
+	"github.com/Shopify/sarama"
+	cluster "github.com/bsm/sarama-cluster"
+	log "github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/bson"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"telmax-provision/structs"
+	"time"
+)
+
+var (
+	LogLevel   = flag.String("loglevel", "info", "Log Level")
+	TZLocation *time.Location
+	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
+	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
+	KafkaGroup = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+
+	FlushTime  = flag.String("flush.dur", "600s", "Flush duration")
+	FlushCount = flag.Int("flush.count", 100000, "Flush count")
+	State      *state
+)
+
+//	The state object is mostly used to maintain the state for the Kafka consumer and the database handle
+type state struct {
+	msgCount int
+	last     time.Time
+	dur      time.Duration
+
+	requests []interface{}
+	offstash *cluster.OffsetStash
+	consumer *cluster.Consumer
+}
+
+func init() {
+	flag.Parse()
+	lvl, _ := log.ParseLevel(*LogLevel)
+	log.SetLevel(lvl)
+	TZLocation, _ = time.LoadLocation("America/Toronto")
+	// 	Initialize the common state object
+	State = &state{}
+	State.last = time.Now()
+	State.offstash = cluster.NewOffsetStash()
+
+	//	Set up the Kafka consumer
+	config := cluster.NewConfig()
+	brokers := strings.Split(*KafkaBrk, ",")
+	topics := []string{*KafkaTopic}
+	consumer, err := cluster.NewConsumer(brokers, *KafkaGroup, topics, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	State.consumer = consumer
+
+}
+
+func main() {
+	// setup signal catching
+	sigs := make(chan os.Signal, 1)
+
+	// catch all signals since not explicitly listing
+	signal.Notify(sigs)
+	//signal.Notify(sigs,syscall.SIGQUIT)
+	// method invoked upon seeing signal
+	go func() {
+		for {
+			select {
+
+			case msg, ok := <-State.consumer.Messages():
+				//	Process a message when a new one comes in
+				if ok {
+					log.Debugf("%s/%d/%d\t%s\t", msg.Topic, msg.Partition, msg.Offset, msg.Key)
+					ProcessRequest(State, msg)
+				}
+
+			case signal := <-sigs:
+				log.Debugf("RECEIVED SIGNAL: %s", signal)
+				if signal == syscall.SIGQUIT || signal == syscall.SIGKILL || signal == syscall.SIGTERM || signal == syscall.SIGINT {
+					AppCleanup()
+					os.Exit(1)
+				} else if signal == syscall.SIGHUP {
+					log.Warning("Re-running process routine")
+
+				} else {
+
+				}
+				// This only works on FreeBSD and MacOS, but it can be nice
+				//else if s == syscall.SIGINFO {
+				//			return
+				//}
+
+			}
+		}
+	}()
+}
+
+// Quit cleanly - close any database connections or other open sockets here.
+func AppCleanup() {
+	log.Error("Stopping Application")
+	State.consumer.Close() // Stop Kafka consumer
+}
+
+func ProcessRequest(s *state, msg *sarama.ConsumerMessage) {
+	State.msgCount++
+
+	// Create an empty request object
+	var request telmaxprovision.ProvisionRequest
+
+	//	Unmarshal the bson serialized message into an object
+	err := bson.Unmarshal(msg.Value, &request)
+	if err != nil {
+		log.Warnf("unmarshaling error: %v", err)
+	} else {
+		log.Debug(request)
+		/*
+
+			Do all your processing on your request object here
+
+
+		*/
+
+	}
+	State.offstash.MarkOffset(msg, "")
+	State.consumer.MarkOffsets(State.offstash)
+
+}

@@ -2,11 +2,11 @@ package provisionproducer
 
 import (
 	"bitbucket.org/timstpierre/telmax-provision/structs"
-	"flag"
-	"github.com/Shopify/sarama"
-	cluster "github.com/bsm/sarama-cluster"
-	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/bson"
+	//"flag"
+	//"github.com/Shopify/sarama"
+	//cluster "github.com/bsm/sarama-cluster"
+	//log "github.com/sirupsen/logrus"
+	//"go.mongodb.org/mongo-driver/bson"
 )
 
 type State struct {
@@ -22,7 +22,7 @@ func init() {
 
 }
 
-func (state *state) SubmitRequest(request ProvisionRequest) {
+func (state *State) SubmitRequest(request telmaxprovision.ProvisionRequest) {
 	// Submit the request to the topic
 
 }
