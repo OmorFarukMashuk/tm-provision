@@ -22,7 +22,7 @@ func init() {
 
 }
 
-func (state *State) SubmitRequest(request telmaxprovision.ProvisionRequest) {
+func (state *State) SubmitRequest(request telmaxprovision.ProvisionRequest) (id string, err error) {
 	// Submit the request to the topic
 
 }
