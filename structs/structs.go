@@ -52,3 +52,20 @@ type ProvisionException struct {
 	Alert         bool      // Get someones attention immediately
 	Error         string    // Human readable text about what the outcome was
 }
+
+/*
+
+{
+	RequestID: "08923546y",
+	AccountCode: "ACCT0160",
+	AccountName: "telMAX",
+	SubscribeCode: "SUBS001",
+	SiteID: "093g56",
+	SubscribeName: "Tim St. Pierre",
+	RequestType: "New",
+	RequestUser: "tstpierre"
+}
+
+
+
+*/

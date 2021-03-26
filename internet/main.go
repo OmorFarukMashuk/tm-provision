@@ -8,15 +8,16 @@ Scaffolding code to make your service.  Replace this with a description of what 
 
 import (
 	//"bson"
+	"encoding/json"
 	"flag"
-	"github.com/Shopify/sarama"
-	cluster "github.com/bsm/sarama-cluster"
+	//	"github.com/Shopify/sarama"
 	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/bson"
+	//	"go.mongodb.org/mongo-driver/bson"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"telmax-provision/kafka"
 	"telmax-provision/structs"
 	"time"
 )
@@ -27,22 +28,9 @@ var (
 	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
 	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
 	KafkaGroup = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
-
-	FlushTime  = flag.String("flush.dur", "600s", "Flush duration")
-	FlushCount = flag.Int("flush.count", 100000, "Flush count")
-	State      *state
 )
 
 //	The state object is mostly used to maintain the state for the Kafka consumer and the database handle
-type state struct {
-	msgCount int
-	last     time.Time
-	dur      time.Duration
-
-	requests []interface{}
-	offstash *cluster.OffsetStash
-	consumer *cluster.Consumer
-}
 
 func init() {
 	flag.Parse()
@@ -50,25 +38,15 @@ func init() {
 	log.SetLevel(lvl)
 	TZLocation, _ = time.LoadLocation("America/Toronto")
 	// 	Initialize the common state object
-	State = &state{}
-	State.last = time.Now()
-	State.offstash = cluster.NewOffsetStash()
-
-	//	Set up the Kafka consumer
-	config := cluster.NewConfig()
-	brokers := strings.Split(*KafkaBrk, ",")
-	topics := []string{*KafkaTopic}
-	consumer, err := cluster.NewConsumer(brokers, *KafkaGroup, topics, config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	State.consumer = consumer
 
 }
 
 func main() {
 	// setup signal catching
 	sigs := make(chan os.Signal, 1)
+
+	brokers := strings.Split(*KafkaBrk, ",")
+	topics := strings.Split(*KafkaTopic, ",")
 
 	// catch all signals since not explicitly listing
 	signal.Notify(sigs)
@@ -77,13 +55,6 @@ func main() {
 	go func() {
 		for {
 			select {
-
-			case msg, ok := <-State.consumer.Messages():
-				//	Process a message when a new one comes in
-				if ok {
-					log.Debugf("%s/%d/%d\t%s\t", msg.Topic, msg.Partition, msg.Offset, msg.Key)
-					ProcessRequest(State, msg)
-				}
 
 			case signal := <-sigs:
 				log.Debugf("RECEIVED SIGNAL: %s", signal)
@@ -104,35 +75,31 @@ func main() {
 			}
 		}
 	}()
+
+	kafka.StartConsumer(brokers, topics, *KafkaGroup, MessageHandler)
+
 }
 
 // Quit cleanly - close any database connections or other open sockets here.
 func AppCleanup() {
 	log.Error("Stopping Application")
-	State.consumer.Close() // Stop Kafka consumer
+	kafka.StopConsumer()
 }
 
-func ProcessRequest(s *state, msg *sarama.ConsumerMessage) {
-	State.msgCount++
+func MessageHandler(topic string, timestamp time.Time, data []byte) {
+	log.Infof("Kafka message %v, %v, %v", topic, timestamp, string(data))
+	switch topic {
+	case "provisionrequest":
+		// Create an empty request object
+		var request telmaxprovision.ProvisionRequest
 
-	// Create an empty request object
-	var request telmaxprovision.ProvisionRequest
-
-	//	Unmarshal the bson serialized message into an object
-	err := bson.Unmarshal(msg.Value, &request)
-	if err != nil {
-		log.Warnf("unmarshaling error: %v", err)
-	} else {
-		log.Debug(request)
-		/*
-
-			Do all your processing on your request object here
-
-
-		*/
-
+		//	Unmarshal the bson serialized message into an object
+		err := json.Unmarshal(data, &request)
+		if err != nil {
+			log.Warnf("unmarshaling error: %v", err)
+		} else {
+			log.Debug(request)
+			HandleProvision(request)
+		}
 	}
-	State.offstash.MarkOffset(msg, "")
-	State.consumer.MarkOffsets(State.offstash)
-
 }
