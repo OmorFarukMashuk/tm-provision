@@ -16,6 +16,7 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 
 	switch request.RequestType {
 	case "New":
+		NewRequest(request)
 
 	case "Update":
 
@@ -48,4 +49,22 @@ func DeviceReturn(request telmaxprovision.ProvisionRequest) {
 		// Put your account refresh code here with tvaccount as the account code
 	}
 
+}
+
+func NewRequest(requst telmaxprovision.ProvisionRequest) {
+	var tvaccount string
+	for _, product := range request.Products {
+		if product.Category == "TV" {
+			tvaccount = request.Accountcode + request.Subscribecode
+		}
+	}
+
+	for _, device := range request.Devices {
+		if device.DeviceType == "TVSetTopBox" {
+			tvaccount = request.Accountcode + request.Subscribecode
+		}
+	}
+	if tvaccount != "" {
+		// Provision the TV account
+	}
 }
