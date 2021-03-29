@@ -11,7 +11,7 @@ type ProvisionRequest struct {
 	SubscribeCode string             // The subscribe code for this physical site or subscription
 	SiteID        string             // The identifier for the physical location
 	SubscribeName string             // The name of the subscription
-	RequestType   string             // Valid requests are New, Update, DeviceSwap, Remove
+	RequestType   string             // Valid requests are New, Update, DeviceSwap, DeviceReturn, Cancel
 	RequestTicket string             // The TicketID if the request came from a ticket - used to add actions to tickets.
 	RequestUser   string             //  The user to notify if something went wrong (optional)
 	Products      []ProvisionProduct // A list of products to provision
@@ -54,17 +54,7 @@ type ProvisionException struct {
 }
 
 /*
-
-{
-	RequestID: "08923546y",
-	AccountCode: "ACCT0160",
-	AccountName: "telMAX",
-	SubscribeCode: "SUBS001",
-	SiteID: "093g56",
-	SubscribeName: "Tim St. Pierre",
-	RequestType: "New",
-	RequestUser: "tstpierre"
-}
+{"RequestID": "08923546y","AccountCode": "ACCT0160","AccountName": "telMAX","SubscribeCode": "SUBS001","SiteID": "093g56","SubscribeName": "Tim St. Pierre","RequestType": "New","RequestUser": "tstpierre"}
 
 
 

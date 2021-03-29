@@ -17,11 +17,19 @@ var (
 	KafkaBrokers      = []string{"kf01.dc1.osh.telmax.ca:9092", "kf02.dc1.osh.telmax.ca:9092", "kf03.dc1.osh.telmax.ca:9092"}
 )
 
+/*
 func init() {
 	// Set up the connection to Kafka
 	ProvisionProducer = NewProducer(KafkaBrokers)
 	sarama.Logger = log.New()
 
+}
+*/
+func StartProducer(brokers []string) {
+	ProvisionProducer = NewProducer(brokers)
+	if ProvisionProducer != nil {
+		log.Info("Connected to Kafka cluster!")
+	}
 }
 
 func SubmitRequest(request telmaxprovision.ProvisionRequest) (id string, err error) {
