@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"flag"
 	//	"github.com/Shopify/sarama"
+	"bitbucket.org/timstpierre/telmax-common"
+	"context"
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"os/signal"
 	"strings"
@@ -23,11 +26,18 @@ import (
 )
 
 var (
-	LogLevel   = flag.String("loglevel", "info", "Log Level")
-	TZLocation *time.Location
-	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
-	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
-	KafkaGroup = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+	LogLevel       = flag.String("loglevel", "info", "Log Level")
+	TZLocation     *time.Location
+	KafkaTopic     = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
+	KafkaBrk       = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
+	KafkaGroup     = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+	MongoURI       = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
+	CoreDatabase   = flag.String("coredatabase", "telmaxmb", "Core Database name")
+	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
+
+	DBClient *mongo.Client
+	CoreDB   *mongo.Database
+	TicketDB *mongo.Database
 )
 
 //	The state object is mostly used to maintain the state for the Kafka consumer and the database handle
@@ -37,7 +47,12 @@ func init() {
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
 	TZLocation, _ = time.LoadLocation("America/Toronto")
-	// 	Initialize the common state object
+	// Connect to the database
+	DBClient = telmax.DBConnect(*MongoURI, "maxcoredb", "coredbmax955TEL")
+	if DBClient != nil {
+		CoreDB = DBClient.Database(*CoreDatabase)
+		TicketDB = DBClient.Database(*TicketDatabase)
+	}
 
 }
 
@@ -84,6 +99,8 @@ func main() {
 func AppCleanup() {
 	log.Error("Stopping Application")
 	kafka.StopConsumer()
+	DBClient.Disconnect(context.TODO())
+
 }
 
 func MessageHandler(topic string, timestamp time.Time, data []byte) {
