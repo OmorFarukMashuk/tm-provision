@@ -11,15 +11,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var (
-	LogLevel = flag.String("loglevel", "info", "Log Level")
+	LogLevel = flag.String("loglevel", "warn", "Log Level")
 	Listen   = flag.String("listen", ":5009", "HTTP API listen address:port")
 
 	UseTLS  = flag.Bool("tls.enable", false, "Enable TLS")
-	TLSCert = flag.String("tls.cert", "/etc/ssl/ldapauth.crt", "LDAP Server Certificate")
-	TLSKey  = flag.String("tls.key", "/etc/ssl/private/ldapauth.key", "LDAP Server private key")
+	TLSCert = flag.String("tls.cert", "/etc/ssl/tvauth.crt", "LDAP Server Certificate")
+	TLSKey  = flag.String("tls.key", "/etc/ssl/private/tvauth.key", "LDAP Server private key")
 
 	MongoURI     = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
 	CoreDatabase = flag.String("coredatabase", "telmaxmb", "Core Database name")
@@ -73,18 +74,23 @@ func main() {
 	router := mux.NewRouter().StrictSlash(false)
 	router.HandleFunc("/", HandleCheckAuth).Methods("GET")
 
+	srv := http.Server{
+		Addr:         *Listen,
+		WriteTimeout: 5 * time.Second,
+		Handler:      router,
+	}
 	// Start the HTTP or HTTPS server
 	if *UseTLS {
 		log.Warning("Listening on " + *Listen + " TLS")
-		log.Fatal(http.ListenAndServeTLS(*Listen, *TLSCert, *TLSKey, router))
+		log.Fatal(srv.ListenAndServeTLS(*TLSCert, *TLSKey))
 	} else {
 		log.Warning("Listening on " + *Listen)
-		log.Fatal(http.ListenAndServe(*Listen, router))
+		log.Fatal(srv.ListenAndServe())
 	}
 }
 
 // Shut down the app cleanly
 func AppCleanup() {
-	log.Error("Stopping Ticket API Service")
+	log.Error("Stopping TV Auth Service")
 	DBClient.Disconnect(context.TODO())
 }
