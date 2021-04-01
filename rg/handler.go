@@ -54,6 +54,7 @@ func DeviceReturn(request telmaxprovision.ProvisionRequest) {
 func NewRequest(request telmaxprovision.ProvisionRequest) {
 	var hasRG bool
 	var devices []string
+	var subscriberID int
 	for _, device := range request.Devices {
 		if device.DeviceType == "RG" {
 			hasRG = true
@@ -68,22 +69,41 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			return
 		}
 		log.Warnf("Subscriber ACS account is %v", subscribe.ACSSubscriber)
+		name := subscribe.FirstName + " " + subscribe.LastName
 		if subscribe.ACSSubscriber == 0 {
 			log.Warn("Subscribe does not have ACS account")
-			name := subscribe.FirstName + " " + subscribe.LastName
-			var labels []string
-			subscribe.ACSSubscriber, err = smartrg.NewSubscriber(name, subscribe.Email, subscriberaccount, labels)
+			subscribe.ACSSubscriber, err = smartrg.NewSubscriber(name, subscribe.Email, subscriberaccount)
 			if err != nil {
 				log.Errorf("Problem creating subscriber %v", err)
 				return
-			} else {
-				err = subscribe.Update(CoreDB)
-				if err != nil {
-					log.Errorf("Problem updating subscribe %v", err)
-				}
 			}
 		} else {
 			log.Warn("Subscribe already has account - not creating")
+		}
+		err = subscribe.Update(CoreDB)
+		subscriberID = subscribe.ACSSubscriber
+		if err != nil {
+			log.Errorf("Problem updating subscribe %v", err)
+		} else {
+			var acsacct smartrg.ACSSubscriber
+			acsacct, err = smartrg.GetSubscriber(subscribe.ACSSubscriber)
+			if err != nil {
+				log.Errorf("Problem getting subscriber for update %v", err)
+			} else {
+				acsacct.Attributes.Email = subscribe.Email
+				acsacct.Attributes.Name = name
+				acsacct.Labels = []smartrg.ACSLabel{
+					smartrg.ACSLabel{
+						Name:     subscribe.NetworkType,
+						FGColour: "#000",
+						BGColour: "#fff",
+					},
+				}
+				err = smartrg.PutSubscriber(acsacct)
+				if err != nil {
+					log.Errorf("Problem updating subscriber details")
+				}
+			}
 		}
 	}
 
@@ -91,7 +111,41 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		var devicecode int
 		devicecode, err := smartrg.NewDevice(deviceMAC, subscriberaccount, "")
 		if err != nil {
-			log.Errorf("Problem creating device entry for mac %v, %v", deviceMAC, err)
+			if err.Error() == "Problem adding device OUI/SN is used by a different device." {
+				log.Info("Device record exists - removing duplicate")
+				record, err := smartrg.GetDeviceRecord(deviceMAC)
+				log.Warnf("Duplicated device record is %v", record)
+				if err != nil {
+					log.Errorf("Problem getting smartRG record for device to delete duplicate %s, %v", deviceMAC, err)
+				} else {
+					if len(record) == 1 {
+						devicecode, _ := strconv.ParseInt(record[0].Fields.DeviceID, 10, 32)
+						deviceSubscriberID := record[0].Fields.SubscriberID
+						if deviceSubscriberID == "0" {
+							log.Infof("Deleting device %v from ACS", devicecode)
+							err = smartrg.RemoveDevice(int(devicecode))
+							if err != nil {
+								log.Errorf("Problem removing device %s - %v", record[0].Fields.DeviceID, err)
+							} else {
+								devicecode, err := smartrg.NewDevice(deviceMAC, subscriberaccount, "")
+								if err != nil {
+									log.Infof("Successfully added device %v to ACS - new code is %v", deviceMAC, devicecode)
+								} else {
+									log.Errorf("Problem creating device entry for mac %v, %v", deviceMAC, err)
+								}
+							}
+						} else if deviceSubscriberID == strconv.Itoa(subscriberID) {
+							log.Errorf("Device with MAC %v is already provisioned", deviceMAC)
+						} else {
+							log.Errorf("Device with MAC %v is already assigned to subscriber %v", deviceMAC, deviceSubscriberID)
+						}
+
+					}
+				}
+
+			} else {
+				log.Errorf("Problem creating device entry for mac %v, %v", deviceMAC, err)
+			}
 		} else {
 			log.Infof("Successfully added device %v to ACS - new code is %v", deviceMAC, devicecode)
 		}
