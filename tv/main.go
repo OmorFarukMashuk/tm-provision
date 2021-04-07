@@ -73,7 +73,7 @@ func main() {
 			select {
 
 			case signal := <-sigs:
-				log.Debugf("RECEIVED SIGNAL: %s", signal)
+				//log.Debugf("RECEIVED SIGNAL: %s", signal)
 				if signal == syscall.SIGQUIT || signal == syscall.SIGKILL || signal == syscall.SIGTERM || signal == syscall.SIGINT {
 					AppCleanup()
 					os.Exit(1)
