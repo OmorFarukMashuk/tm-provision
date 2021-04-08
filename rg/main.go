@@ -15,22 +15,23 @@ import (
 	"context"
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
+	"bitbucket.org/timstpierre/telmax-provision/kafka"
+	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-	"telmax-provision/kafka"
-	"telmax-provision/structs"
 	"time"
 )
 
 var (
-	LogLevel       = flag.String("loglevel", "info", "Log Level")
-	TZLocation     *time.Location
-	KafkaTopic     = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
-	KafkaBrk       = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
-	KafkaGroup     = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+	LogLevel   = flag.String("loglevel", "info", "Log Level")
+	TZLocation *time.Location
+	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
+	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
+	KafkaGroup = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+
 	MongoURI       = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
 	CoreDatabase   = flag.String("coredatabase", "telmaxmb", "Core Database name")
 	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
@@ -47,12 +48,16 @@ func init() {
 	lvl, _ := log.ParseLevel(*LogLevel)
 	log.SetLevel(lvl)
 	TZLocation, _ = time.LoadLocation("America/Toronto")
+
 	// Connect to the database
 	DBClient = telmax.DBConnect(*MongoURI, "maxcoredb", "coredbmax955TEL")
 	if DBClient != nil {
 		CoreDB = DBClient.Database(*CoreDatabase)
 		TicketDB = DBClient.Database(*TicketDatabase)
 	}
+
+	brokers := strings.Split(*KafkaBrk, ",")
+	kafka.StartProducer(brokers)
 
 }
 
@@ -99,6 +104,7 @@ func main() {
 func AppCleanup() {
 	log.Error("Stopping Application")
 	kafka.StopConsumer()
+	kafka.Shutdown()
 	DBClient.Disconnect(context.TODO())
 
 }
