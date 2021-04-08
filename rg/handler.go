@@ -6,9 +6,10 @@ import (
 	"bitbucket.org/timstpierre/smartrg"
 	//"strings"
 	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/timstpierre/telmax-provision/kafka"
+	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"strconv"
-	"telmax-provision/structs"
-	//"time"
+	"time"
 )
 
 func HandleProvision(request telmaxprovision.ProvisionRequest) {
@@ -19,6 +20,7 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 		NewRequest(request)
 
 	case "Update":
+		NewRequest(request)
 
 	case "DeviceReturn":
 		log.Info("Handling returned devices")
@@ -61,6 +63,10 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			devices = append(devices, device.Mac)
 		}
 	}
+	result := telmaxprovision.ProvisionResult{
+		RequestID: request.RequestID,
+		Time:      time.Now(),
+	}
 	subscriberaccount := request.AccountCode + request.SubscribeCode
 	if hasRG {
 		subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
@@ -82,16 +88,26 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		}
 		err = subscribe.Update(CoreDB)
 		subscriberID = subscribe.ACSSubscriber
+
 		if err != nil {
 			log.Errorf("Problem updating subscribe %v", err)
+			result.Result = "Problem creating ACS Subscriber record" + err.Error()
+			kafka.SubmitResult(result)
 		} else {
 			var acsacct smartrg.ACSSubscriber
 			acsacct, err = smartrg.GetSubscriber(subscribe.ACSSubscriber)
 			if err != nil {
 				log.Errorf("Problem getting subscriber for update %v", err)
+				result.Result = "Problem getting ACS Subscriber record" + err.Error()
+				kafka.SubmitResult(result)
+
 			} else {
+				log.Debugf("ACS Subscriber details are %v", acsacct)
 				acsacct.Attributes.Email = subscribe.Email
 				acsacct.Attributes.Name = name
+				acsacct.Credentials.Login = subscribe.Email
+				acsacct.Credentials.Password = "telMAXinc@5*"
+				acsacct.Credentials.Locked = false
 				acsacct.Labels = []smartrg.ACSLabel{
 					smartrg.ACSLabel{
 						Name:     subscribe.NetworkType,
@@ -102,6 +118,15 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				err = smartrg.PutSubscriber(acsacct)
 				if err != nil {
 					log.Errorf("Problem updating subscriber details")
+					result.Result = "Problem updating ACS Subscriber record" + err.Error()
+					kafka.SubmitResult(result)
+
+				} else {
+					result.Success = true
+					result.Time = time.Now()
+					result.Result = "Updated ACS subscriber record " + strconv.Itoa(subscriberID)
+					kafka.SubmitResult(result)
+
 				}
 			}
 		}
@@ -117,6 +142,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				log.Warnf("Duplicated device record is %v", record)
 				if err != nil {
 					log.Errorf("Problem getting smartRG record for device to delete duplicate %s, %v", deviceMAC, err)
+					result.Result = "Problem getting smartRG record for device to delete duplicate " + deviceMAC + " Error " + err.Error()
+					kafka.SubmitResult(result)
 				} else {
 					if len(record) == 1 {
 						devicecode, _ := strconv.ParseInt(record[0].Fields.DeviceID, 10, 32)
@@ -130,14 +157,30 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 								devicecode, err := smartrg.NewDevice(deviceMAC, subscriberaccount, "")
 								if err != nil {
 									log.Infof("Successfully added device %v to ACS - new code is %v", deviceMAC, devicecode)
+									result.Success = true
+									result.Time = time.Now()
+									result.Result = "Added device " + deviceMAC + " to ACS"
+									kafka.SubmitResult(result)
+
 								} else {
 									log.Errorf("Problem creating device entry for mac %v, %v", deviceMAC, err)
+									result.Result = "Problem creating device entry for mac " + deviceMAC + " " + err.Error()
+									result.Time = time.Now()
+									kafka.SubmitResult(result)
 								}
 							}
 						} else if deviceSubscriberID == strconv.Itoa(subscriberID) {
-							log.Errorf("Device with MAC %v is already provisioned", deviceMAC)
+							log.Infof("Device with MAC %v is already provisioned", deviceMAC)
+							result.Result = "Device " + deviceMAC + " already provisioned, skipping"
+							result.Success = true
+							result.Time = time.Now()
+							kafka.SubmitResult(result)
+
 						} else {
 							log.Errorf("Device with MAC %v is already assigned to subscriber %v", deviceMAC, deviceSubscriberID)
+							result.Result = "Device with MAC " + deviceMAC + " is already assigned to subscriber " + deviceSubscriberID
+							result.Time = time.Now()
+							kafka.SubmitResult(result)
 						}
 
 					}
@@ -145,9 +188,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 			} else {
 				log.Errorf("Problem creating device entry for mac %v, %v", deviceMAC, err)
+				result.Result = "Problem creating device entry for mac " + deviceMAC + " " + err.Error()
+				result.Time = time.Now()
+				kafka.SubmitResult(result)
 			}
 		} else {
 			log.Infof("Successfully added device %v to ACS - new code is %v", deviceMAC, devicecode)
+			result.Success = true
+			result.Time = time.Now()
+			result.Result = "Added device " + deviceMAC + " to ACS"
+			kafka.SubmitResult(result)
 		}
 
 	}

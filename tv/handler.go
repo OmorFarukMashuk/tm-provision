@@ -5,9 +5,10 @@ import (
 	//	"go.mongodb.org/mongo-driver/bson"
 	"bitbucket.org/timstpierre/telmax-common"
 	//"strings"
-	"telmax-provision/structs"
+	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"telmax-provision/kafka"
 	"telmax-provision/tv/enghouse"
-	//"time"
+	"time"
 )
 
 // Determine what sort of request it was
@@ -77,10 +78,59 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	accountdata, err := enghouse.EnghouseAccount(CoreDB, request.AccountCode, request.SubscribeCode)
 	if len(accountdata.Service) > 0 {
 		err = enghouse.EnghouseRequest(accountdata, request.RequestID)
+		result := telmaxprovision.ProvisionResult{
+			RequestID: request.RequestID,
+			Time:      time.Now(),
+		}
 		if err != nil {
 			log.Errorf("Problem provisioning TV account %v", err)
+			result.Result = "Problem provisioning TV Services" + err.Error()
+			ResultException(result, "New TV Account", false, err)
+		} else {
+			result.Success = true
+			result.Result = "Enghouse provisioning accepted"
 		}
+		kafka.SubmitResult(result)
 	} else {
 		log.Infof("No Enghouse channels for account %v subscribe %v", request.AccountCode, request.SubscribeCode)
+	}
+}
+
+func CancelRequest(request telmaxprovision.ProvisionRequest) {
+	accountdata, err := enghouse.EnghouseAccount(CoreDB, request.AccountCode, request.SubscribeCode)
+	//	if len(accountdata.Service) > 0 {
+	accountdata.Account_status = "REMOVED"
+	err = enghouse.EnghouseRequest(accountdata, request.RequestID)
+	result := telmaxprovision.ProvisionResult{
+		RequestID: request.RequestID,
+		Time:      time.Now(),
+	}
+	if err != nil {
+		log.Errorf("Problem cancelling TV account %v", err)
+		result.Result = "Problem cancelling TV Services" + err.Error()
+	} else {
+		result.Success = true
+		result.Result = "Enghouse cancellation accepted"
+	}
+	kafka.SubmitResult(result)
+	//	} else {
+	//		log.Infof("No Enghouse channels for account %v subscribe %v", request.AccountCode, request.SubscribeCode)
+	//	}
+}
+
+func ResultException(result telmaxprovision.ProvisionResult, tag string, alert bool, err error) {
+	exception := telmaxprovision.ProvisionException{
+		RequestID:     result.RequestID,
+		Reference:     result.Reference,
+		ReferenceType: result.ReferenceType,
+		Time:          time.Now(),
+		System:        "tv",
+		Tag:           tag,
+		Alert:         alert,
+		Error:         tag + " - " + err.Error(),
+	}
+	submiterr := kafka.SubmitException(exception)
+	if submiterr != nil {
+		log.Errorf("Problem submitting exception %v", submiterr)
 	}
 }
