@@ -5,8 +5,8 @@ import (
 	//	"go.mongodb.org/mongo-driver/bson"
 	"bitbucket.org/timstpierre/telmax-common"
 	//"strings"
+	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"telmax-provision/kafka"
-	"telmax-provision/structs"
 	"telmax-provision/tv/enghouse"
 	"time"
 )
