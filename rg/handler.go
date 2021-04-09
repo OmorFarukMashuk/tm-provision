@@ -105,9 +105,9 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				log.Debugf("ACS Subscriber details are %v", acsacct)
 				acsacct.Attributes.Email = subscribe.Email
 				acsacct.Attributes.Name = name
-				acsacct.Credentials.Login = subscribe.Email
-				acsacct.Credentials.Password = "telMAXinc@5*"
-				acsacct.Credentials.Locked = false
+				//acsacct.Credentials.Login = subscribe.Email
+				//acsacct.Credentials.Password = "telMAXinc@5*"
+				//acsacct.Credentials.Locked = false
 				acsacct.Labels = []smartrg.ACSLabel{
 					smartrg.ACSLabel{
 						Name:     subscribe.NetworkType,

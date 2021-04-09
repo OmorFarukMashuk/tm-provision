@@ -51,6 +51,40 @@ func SubmitRequest(request telmaxprovision.ProvisionRequest) (id string, err err
 	return
 }
 
+// Use an existing producer and send a provision result
+func SubmitResult(result telmaxprovision.ProvisionResult) error {
+	data, err := json.Marshal(result)
+	if err != nil {
+		log.Errorf("Problem unmarshalling result message %v", err)
+		return err
+	}
+	message := sarama.ProducerMessage{
+		Topic: "provisionresult",
+		Value: sarama.ByteEncoder(data),
+	}
+	partition, offset, err := ProvisionProducer.SendMessage(&message)
+	log.Infof("Partition is %v and offset is %v", partition, offset)
+	if err != nil {
+		log.Errorf("Kafka producer error %v", err)
+	}
+	return err
+}
+
+// Use an existing producer and send a provision result
+func SubmitException(result telmaxprovision.ProvisionException) error {
+	data, err := json.Marshal(result)
+	message := sarama.ProducerMessage{
+		Topic: "provisionexception",
+		Value: sarama.ByteEncoder(data),
+	}
+	partition, offset, err := ProvisionProducer.SendMessage(&message)
+	log.Debugf("Partition is %v and offset is %v", partition, offset)
+	if err != nil {
+		log.Errorf("Kafka producer error %v", err)
+	}
+	return err
+}
+
 func NewProducer(brokers []string) sarama.SyncProducer {
 	config := sarama.NewConfig()
 	log.Info("brokers list is %v", brokers)
