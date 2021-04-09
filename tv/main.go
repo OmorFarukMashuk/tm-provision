@@ -17,7 +17,7 @@ import (
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"context"
-	"github.com/Shopify/sarama"
+	//	"github.com/Shopify/sarama"
 	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"os/signal"
@@ -40,7 +40,7 @@ var (
 	CoreDB   *mongo.Database
 	TicketDB *mongo.Database
 
-	KafkaProducer sarama.SyncProducer
+//	KafkaProducer sarama.SyncProducer
 )
 
 //	The state object is mostly used to maintain the state for the Kafka consumer and the database handle
@@ -57,8 +57,8 @@ func init() {
 		CoreDB = DBClient.Database(*CoreDatabase)
 		TicketDB = DBClient.Database(*TicketDatabase)
 	}
-	brokers := strings.Split(*KafkaBrk, ",")
-	kafka.StartProducer(brokers)
+	//	brokers := strings.Split(*KafkaBrk, ",")
+	//	time.Sleep(2 * time.Second)
 
 }
 
@@ -97,7 +97,9 @@ func main() {
 		}
 	}()
 
-	KafkaProducer = kafka.NewProducer(brokers)
+	//	KafkaProducer = kafka.NewProducer(brokers)
+	kafka.StartProducer(brokers)
+
 	// Start up the Kafka consumer
 	kafka.StartConsumer(brokers, topics, *KafkaGroup, MessageHandler)
 

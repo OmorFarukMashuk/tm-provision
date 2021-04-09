@@ -5,8 +5,8 @@ import (
 	//	"go.mongodb.org/mongo-driver/bson"
 	"bitbucket.org/timstpierre/telmax-common"
 	//"strings"
+	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	"bitbucket.org/timstpierre/telmax-provision/structs"
-	"telmax-provision/kafka"
 	"telmax-provision/tv/enghouse"
 	"time"
 )
@@ -85,12 +85,14 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		if err != nil {
 			log.Errorf("Problem provisioning TV account %v", err)
 			result.Result = "Problem provisioning TV Services" + err.Error()
+			kafka.SubmitResult(result)
 			ResultException(result, "New TV Account", false, err)
+
 		} else {
 			result.Success = true
 			result.Result = "Enghouse provisioning accepted"
+			kafka.SubmitResult(result)
 		}
-		kafka.SubmitResult(result)
 	} else {
 		log.Infof("No Enghouse channels for account %v subscribe %v", request.AccountCode, request.SubscribeCode)
 	}
