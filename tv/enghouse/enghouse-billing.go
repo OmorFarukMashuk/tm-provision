@@ -96,7 +96,7 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
         rootCAPool := x509.NewCertPool()
         rootCA, err := ioutil.ReadFile(RootCertificatePath)
         if err != nil {
-                log.Debug("reading cert failed : %v", err)
+                log.Fatalf("reading cert failed : %v", err)
         }
         rootCAPool.AppendCertsFromPEM(rootCA)
 //	client := &http.Client{Transport: tr}
