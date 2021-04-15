@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"time"
+	"crypto/x509"
 )
 
 var (
@@ -25,6 +26,8 @@ var (
 		"IPTV_RSTV",
 	}
 )
+	const RootCertificatePath string = "Portal-Operations-cert.crt"
+
 
 // This is now in a separate file
 /*
@@ -84,10 +87,26 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 		},
 	}
 
+/*
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	client := &http.Client{Transport: tr}
+*/
+//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
+        rootCAPool := x509.NewCertPool()
+        rootCA, err := ioutil.ReadFile(RootCertificatePath)
+        if err != nil {
+                log.Fatalf("reading cert failed : %v", err)
+        }
+        rootCAPool.AppendCertsFromPEM(rootCA)
+//	client := &http.Client{Transport: tr}
+	client := http.Client{
+                Timeout: 5 * time.Second,
+                Transport: &http.Transport{
+                        IdleConnTimeout: 10 * time.Second,
+                        TLSClientConfig: &tls.Config{RootCAs: rootCAPool,},
+                },
+        }
 
 	// Create this in a different function.  Use this one just to do the API call.
 	/*
