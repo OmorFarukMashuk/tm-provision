@@ -37,21 +37,38 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		log.Errorf("Problem getting subscriber %v", err)
 	}
 	if subscribe.NetworkType == "Fibre" {
+		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+
 		// Check to see if they have any Internet services
+		pools := map[string]bool{}
+		for _, product := range request.Products {
+			product := telmax.GetProduct(CoreDB, "product_code", product.ProductCode)
+			if product.NetworkProfile != nil {
+				profile := *product.NetworkProfile
+				pools[profile.AddressPool] = true
+			}
+		}
 		
 		// If yes, then assign an IP address in DHCP
-		
+		for pool, _ := range pools {
+			lease := 
+		}
+
+		// Get the ONT information
 		for _, device := range request.Devices {
-			if device.DeviceType = "AccessEndpoint"{
+			if device.DeviceType == "AccessEndpoint" {
 				var definition telmax.DeviceDefinition
-				definition, err = telmax.GetDeviceDefinition()
-				
+				definition, err = telmax.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
+				if definition.Vendor == "AdTran" && definition.Upstream == "XGS-PON" {
+
+				}
+
 			}
 		}
 		// Create ONT record
-		
+
 		// Create ONT interfaces
-		
+
 		// Add services
 
 	} else {
