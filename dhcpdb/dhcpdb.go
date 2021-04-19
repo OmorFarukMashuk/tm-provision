@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	//"fmt"
+	"errors"
 	"github.com/davecgh/go-spew/spew"
 	_ "github.com/go-sql-driver/mysql"
 	log "github.com/sirupsen/logrus"
@@ -12,41 +13,15 @@ import (
 	"strconv"
 )
 
-type sqlServer struct {
-	Hostname string
-	Username string
-	Password string
-}
-
-type ipReservation struct {
-	HostID int
-	DhcpID string
-	Pool   string
-	VlanID int
-	V4Addr net.IP
-	V6wan  net.IP
-	V6dp   net.IP
-	V6size int
-}
-
-type ipv6Reservation struct {
-	ResID   int
-	Address net.IP
-	Length  int
-	Type    int
-	Iaid    int
-	HostID  int
-}
-
 var (
 	SQL *sql.DB
 )
 
 func SQLConnect() *sql.DB {
 	s := sqlServer{
-		Hostname: "dhcp01.dc1.osh.telmax.ca",
+		Hostname: "dhcp01.lab.dc1.osh.telmax.ca",
 		Username: "provisioning",
-		Password: "Pr0vision!",
+		Password: "telMAXProv720",
 	}
 	d := "dhcp"
 	connect_str := s.Username + ":" + s.Password + "@tcp(" + s.Hostname + ":3306)/" + d
@@ -66,83 +41,85 @@ func SQLConnect() *sql.DB {
 
 // Assigns an address from the named pool and returns the address object and the success of the operation.  Will return existing allocation if already assigned.
 //
-func DhcpAssign(ctx context.Context, pool string, cust string, subs string, circuit string, dhcpid string) (bool, ipReservation) {
+func DhcpAssign(node string, pool string, subs string) (reservation Reservation, err error) {
 	db := SQLConnect()
 	defer db.Close()
+	ctx := context.TODO()
+	dhcpid := subs
 
-	log.Info("Getting address reservation for circuit " + circuit)
-	success, res := dhcpGetAssign(ctx, circuit)
-
-	if success {
+	log.Info("Getting address reservation for subscriber " + subs)
+	reservation, err = dhcpGetAssign(ctx, subs, pool)
+	if err != nil && err.Error() != "DHCP allocation not found!" {
+		log.Errorf("Problem checking for existing allocation")
+		return
+	} else if reservation.HostID != 0 {
 		log.Info("Existing address already allocated")
-		return success, res
+		return
 	} else {
 		log.Info("Allocating new address")
-
-		result, err := db.ExecContext(ctx, `update hosts set status='Assigned',customer_code=?,subscribe_code=?,circuit_id=?, dhcp_identifier=?, dhcp_identifier_type=2 where pool_name= ? and status='Available'  order by host_id limit 1`, cust, subs, circuit, dhcpid, pool)
+		var result sql.Result
+		result, err = db.ExecContext(ctx, `update hosts set status='Assigned',subscriber=?, dhcp_identifier=?, dhcp_identifier_type=2 where node= ? AND pool= ? AND status='Available'  order by host_id limit 1`, subs, dhcpid, node, pool)
 		if err != nil {
 			log.Info(err)
+			return
 		}
 		rows, _ := result.RowsAffected()
 		if err != nil {
 			log.Info("Problem assigning IP address")
 		} else if rows > 0 {
-			success, res = dhcpGetAssign(ctx, circuit)
+			reservation, err = dhcpGetAssign(ctx, subs, pool)
 		} else {
 			log.Fatal("Could not assign IP address")
-			success = false
 		}
 	}
 
-	return success, res
+	return
 
 }
 
-func DhcpReleaseAll(ctx context.Context, circuit string) bool {
+func DhcpReleaseAll(subs string) error {
+	ctx := context.TODO()
 	db := SQLConnect()
 	defer db.Close()
-	log.Info("requesting reservation for circuit " + circuit)
-	var success bool
+	log.Info("Releasing reservations for subscriber " + subs)
 
-	result, err := db.ExecContext(ctx, `update hosts set dhcp_identifier = null, hostname="", accountcode='unassigned', customer_code=null,subscribe_code=null,circuit_id=null, status='Available' where circuit_id=?`, circuit)
+	result, err := db.ExecContext(ctx, `update hosts set dhcp_identifier = null, hostname="", subscriber='unassigned', status='Available' where subscriber=?`, subs)
 
 	rows, _ := result.RowsAffected()
 	if err != nil {
 		log.Info("Problem assigning IP address")
 	} else if rows > 0 {
-		success = true
+		log.Info("Released %v resources", rows)
 	} else {
 		log.Info("No address resources to release!")
-		success = true
 	}
-	return success
+	return err
 }
 
-func dhcpGetAssign(ctx context.Context, circuit string) (bool, ipReservation) {
+func dhcpGetAssign(ctx context.Context, subs string, pool string) (reservation Reservation, err error) {
 	db := SQLConnect()
 	defer db.Close()
-	log.Info("requesting reservation for circuit " + circuit)
-	var reservation ipReservation
-	var success bool
+	log.Info("requesting reservation for subscriber " + subs + " in pool " + pool)
+
 	//var id int
-	sqlQuery := `select host_id,dhcp_identifier,pool_name,vlan_id,ipv4_address from hosts where circuit_id=?`
+	sqlQuery := `select host_id,dhcp6_subnet_id,dhcp_identifier,pool,node,vlan,ipv4_address from hosts where subscriber=? AND pool=?`
 	//sqlQuery := `select host_id from hosts where circuit_id=?`
 
-	row := db.QueryRow(sqlQuery, circuit)
+	row := db.QueryRow(sqlQuery, subs, pool)
 
 	var dhcpid sql.NullString
 	var v4address int64
 
-	switch err := row.Scan(&reservation.HostID, &dhcpid, &reservation.Pool, &reservation.VlanID, &v4address); err {
+	switch err = row.Scan(&reservation.HostID, &reservation.SubnetID, &dhcpid, &reservation.Pool, &reservation.Node, &reservation.VlanID, &v4address); err {
 	//switch err := row.Scan(&id); err {
 
 	case sql.ErrNoRows:
 		log.Info("No rows were returned")
-		success = false
+		err = errors.New("DHCP allocation not found!")
+		return
 	case nil:
 		hostidstr := strconv.FormatInt(int64(reservation.HostID), 10)
 		log.Info("Existing resevation host ID is " + hostidstr)
-		success = true
 		if dhcpid.Valid {
 			reservation.DhcpID = dhcpid.String
 			log.Debug("DHCP ID is " + reservation.DhcpID)
@@ -164,7 +141,6 @@ func dhcpGetAssign(ctx context.Context, circuit string) (bool, ipReservation) {
 			if err := rows.Scan(&v6res.ResID, &ip6address, &v6res.Length, &v6res.Type, &iaid, &v6res.HostID); err != nil {
 				log.Fatal(err)
 			} else {
-				success = true
 				v6res.Address = net.ParseIP(ip6address)
 				if iaid.Valid {
 					v6res.Iaid = int(iaid.Int32)
@@ -181,8 +157,10 @@ func dhcpGetAssign(ctx context.Context, circuit string) (bool, ipReservation) {
 		log.Info(spew.Sdump(reservation))
 
 	default:
-		panic(err)
+		log.Errorf("Problem getting DHCP allocation %v", err)
+		return
+
 	}
-	return success, reservation
+	return
 
 }

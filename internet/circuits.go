@@ -5,7 +5,7 @@ import ()
 var ()
 
 func AssignCircuit(wirecentre string, pon string, subscriber string) (circuit Circuit, err error) {
-
+	return
 }
 
 type Circuit struct {

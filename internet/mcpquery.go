@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 var (
@@ -41,6 +44,7 @@ func MCPAuth(username string, password string) (token string, err error) {
 		return
 	}
 	defer response.Body.Close()
+	var result []byte
 	result, err = ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Errorf("Problem Reading HTTP Response %v", err)
@@ -50,7 +54,7 @@ func MCPAuth(username string, password string) (token string, err error) {
 			Token   string `json:"token"`
 			Message string `json:"message"`
 		}
-		err = json.Unmarshal(&responseData)
+		err = json.Unmarshal(result, &responseData)
 		if err != nil {
 			if token != "" {
 				token = responseData.Token
@@ -63,7 +67,7 @@ func MCPAuth(username string, password string) (token string, err error) {
 	return
 }
 
-func MCPRequest(authtoken, string, command string, data interface{}) (response interface{}, err error) {
+func MCPRequest(authtoken, string, command string, data interface{}) (responseObj interface{}, err error) {
 	Client := http.Client{
 		Timeout: time.Second * 4,
 	}
@@ -71,12 +75,12 @@ func MCPRequest(authtoken, string, command string, data interface{}) (response i
 	var req *http.Request
 	var jsonStr []byte
 	jsonStr, err = json.Marshal(data)
-	log.Debugf("Posted string is %v", string(jsonStr))
+	log.Debugf("Posted string is %v", jsonStr)
 	if err != nil {
 		log.Errorf("Problem marshalling JSON data", err)
 		return
 	}
-	req, err = http.NewRequest(method, url, bytes.NewBuffer(jsonStr))
+	req, err = http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonStr))
 	if err != nil {
 		log.Errorf("Problem generating HTTP request %v", err)
 		return
@@ -88,10 +92,13 @@ func MCPRequest(authtoken, string, command string, data interface{}) (response i
 		return
 	}
 	defer response.Body.Close()
+	var result []byte
 	result, err = ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Errorf("Problem Reading HTTP Response %v", err)
 		return
+	} else {
+		json.Unmarshal(result, &responseObj)
 	}
 	return
 }
