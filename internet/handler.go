@@ -74,16 +74,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		}
 
 		// Get the ONT information
-		var activeONT struct {
-			Device     telmax.Device
-			Definition telmax.DeviceDefinition
-		}
+
 		var hasONT bool
+		var activeONT ONTData
 		for _, device := range request.Devices {
-			if device.DeviceType == "AccessEndpoint" {
+			log.Infof("Device data is %v", device)
+			if device.DeviceType == "AccessTerminal" {
 				var definition telmax.DeviceDefinition
 				definition, err = telmax.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
-				if definition.Vendor == "AdTran" && definition.Upstream == "XGS-PON" {
+				log.Infof("Device definition is %v", definition)
+				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
 					log.Infof("Found ONT")
 					activeONT.Definition = definition
 					activeONT.Device, err = telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
@@ -93,9 +93,23 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			}
 		}
 		// Create ONT record
+		if hasONT {
+			var site Site
+			var PON string
+			if subscribe.SiteID != "" {
+				site, err = GetSite(subscribe.SiteID)
+				if err != nil {
+					log.Errorf("Problem getting site %v", err)
+				}
+				log.Infof("Site data is %v", site)
+				PON = site.CircuitData[0].PON
+				if PON == "" {
+					log.Infof("Site %v does not have PON data", site)
+				}
+			}
+			err = CreateONT(subscriber, activeONT, subscribe.Wirecentre, PON)
 
-		// Create ONT interfaces
-
+		}
 		// Add services
 
 	} else {

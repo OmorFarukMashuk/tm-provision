@@ -1,110 +1,81 @@
 package main
 
-import ()
+import (
+	"bitbucket.org/timstpierre/telmax-common"
+	"time"
+)
 
 var ()
 
-type MCPDeviceCreate struct {
+type ONTData struct {
+	Device     telmax.Device
+	Definition telmax.DeviceDefinition
+}
+
+type MCPDevice struct {
 	DeviceContext struct {
-		DeviceName              string `json:"device-name"`
-		ModelName               string `json:"model-name"`
+		DeviceName       string `json:"device-name"`
+		ModelName        string `json:"model-name,omitempty"`
+		ObjectParameters struct {
+			Serial string `json:"serial-number,omitempty"`
+			OnuID  int    `json:"onu-id,omitempty"`
+		} `json:"object-parameters,omitempty"`
 		ManagementDomainContext struct {
 			ManagementDomainExternal interface{} `json:"management-domain-external"`
 		} `json:"management-domain-context,omitempty"`
+		ProfileVector     string `json:"profile-vector-name,omitempty"`
+		BaseConfiguration string `json:"base-configuration"`
+		UpstreamInterface string `json:"interface-name,omitempty"`
 	} `json:"device-context"`
-	ProfileVector     string `json:"profile-vector-name"`
-	BaseConfiguration string `json:"base-configuration"`
 }
 
-type MCPDeviceDeploy struct {
-	DeviceContext struct {
-		DeviceName       string `json:"device-name"`
-		ObjectParameters struct {
-			Serial string `json:"serial-number"`
-			OnuID  int    `json:"onu-id"`
-		} `json:"object-parameters"`
-		InterfaceName string `json:"interface-name"`
-	}
-}
-
-type MCPDeviceActivate struct {
-	DeviceContext struct {
-		DeviceName string `json:"device-name"`
-	}
-}
-
-
-
-
-type MCPInterfaceCreate struct {
-	InterfaceContext struct {
-		InterfaceName              string `json:"interface-name"`
-		InterfaceType               string `json:"interface-type"`
-	} `json:"device-context"`
-	ProfileVector     string `json:"profile-vector-name"`
-}
-
-type MCPInterfaceDeploy struct {
-	InterfaceContext struct {
-		InterfaceName       string `json:"interface-name"`
-		InterfaceType       string `json:"interface-type"`
-		DeviceName string `json:"device-name"`
-		InterfaceID       string `json:"interface-id"`
-	}
-}
-
-type MCPInterfaceActivate struct {
+type MCPInterface struct {
 	InterfaceContext struct {
 		InterfaceName string `json:"interface-name"`
-	}
+		InterfaceType string `json:"interface-type,omitempty"`
+		DeviceName    string `json:"device-name,omitempty"`
+		InterfaceID   string `json:"interface-id,omitempty"`
+		ProfileVector string `json:"profile-vector-name,omitempty"`
+	} `json:"interface-context"`
 }
 
-
-
-
-
-
-
-type MCPServiceCreate struct {
+type MCPService struct {
 	ServiceContext struct {
-		ServiceID              string `json:"service-id"`
-		ServiceType            string `json:"service-type"`
-		RemoteID               string `json:"remote-id"`
-		CircuitID              string `json:"circuit-id"`
-	} `json:"device-context"`
-
-	ProfileName     string `json:"profile-name"`
-}
-
-type MCPServiceDeploy struct {
-	ServiceContext struct {
-		ServiceID       string `json:"service-name"`
-
+		ServiceID     string `json:"service-id"`
+		ServiceType   string `json:"service-type"`
+		RemoteID      string `json:"remote-id"`
+		CircuitID     string `json:"circuit-id"`
 		UplinkContext struct {
 			InterfaceEndpoint struct {
-				OuterTagVlanID string `json:"outer-tag-vlan-id"`
-				InnerTagVlanID string `json:"inner-tag-vlan-id"`
+				OuterTagVlanID      string `json:"outer-tag-vlan-id"`
+				InnerTagVlanID      string `json:"inner-tag-vlan-id"`
 				ContentProviderName string `json:"content-provider-name"`
 			}
-		} `json:"uplink-context"`
-
+		} `json:"uplink-context,omitempty"`
 
 		DownlinkContext struct {
 			InterfaceEndpoint struct {
 				OuterTagVlanID string `json:"outer-tag-vlan-id"`
 				InnerTagVlanID string `json:"inner-tag-vlan-id"`
-				InterfaceName string `json:"interface-name"`
+				InterfaceName  string `json:"interface-name"`
 			}
-		} `json:"downlink-context"`
+		} `json:"downlink-context,omitempty"`
+	} `json:"service-context"`
 
-	}
+	ProfileName string `json:"profile-name,omitempty"`
 }
 
-type MCPServiceActivate struct {
-	ServiceContext struct {
-		ServiceID string `json:"service-id"`
+type MCPResult struct {
+	Errors struct {
+		Type    string `json:"error-type"`
+		Tag     string `json:"error-tag"`
+		Message string `json:"error-message"`
+	} `json:"errors"`
+	Output struct {
+		DeviceName string    `json:"device-name"`
+		TimeStamp  time.Time `json:"timestamp"`
+		Status     string    `json:"status"`
+		TransID    string    `json:"trans-id"`
+		Completion string    `json:"completion-status"`
 	}
 }
-
-
-
