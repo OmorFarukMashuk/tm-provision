@@ -126,10 +126,14 @@ func MCPRequest(authtoken string, command string, data interface{}) (mcpresponse
 	} else {
 		json.Unmarshal(result, &mcpresponse)
 	}
+	if mcpresponse.Errors.Message != "" {
+		err = errors.New(mcpresponse.Errors.Message)
+		log.Errorf("MCP error %v", mcpresponse)
+	}
 	return
 }
 
-func CreateONT(subscriber string, ONT ONTData, node string, PON string) error {
+func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	token, err := MCPAuth()
 	if err != nil {
 		log.Errorf("Could not authenticate to MCP %v", err)
@@ -150,23 +154,29 @@ func CreateONT(subscriber string, ONT ONTData, node string, PON string) error {
 	var emptystruct struct{}
 	device.DeviceContext.ManagementDomainContext.ManagementDomainExternal = emptystruct
 	var mcpresult MCPResult
-	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:create", device)
-	log.Infof("MCP result is %v", mcpresult)
-	if err != nil {
-		log.Errorf("Problem creating ONT %v", err)
-		return err
-	}
+
 	if activateNow {
 		device.DeviceContext.ObjectParameters.Serial = ONT.Device.Serial
-		circuit, _ := AssignCircuit(node, PON, subscriber)
-		device.DeviceContext.ObjectParameters.OnuID = circuit.Unit
+		device.DeviceContext.ObjectParameters.OnuID = ONU
 		device.DeviceContext.UpstreamInterface = PON
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:deploy", device)
+		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", device)
 		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 3)
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:activate", device)
-		log.Infof("MCP result is %v", mcpresult)
+		time.Sleep(time.Second * 5)
 
+		if err != nil {
+			return err
+		}
+		log.Infof("MCP result is %v", mcpresult.Output.Status)
+
+	} else {
+		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:create", device)
+		log.Infof("MCP result is %v", mcpresult)
+		time.Sleep(time.Second * 5)
+
+		if err != nil {
+			log.Errorf("Problem creating ONT %v", err)
+			//		return err
+		}
 	}
 	// Create Ethernet interfaces
 	for index := 0; index < int(ONT.Definition.EthernetPorts); index++ {
@@ -176,15 +186,47 @@ func CreateONT(subscriber string, ONT ONTData, node string, PON string) error {
 		iface.InterfaceContext.DeviceName = subscriber + "-ONT"
 		iface.InterfaceContext.InterfaceID = "ethernet 0/" + strconv.Itoa(index+1)
 		iface.InterfaceContext.ProfileVector = "ONU Eth UNI Profile Vector"
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:create", iface)
+		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
 		log.Infof("MCP result is %v", mcpresult)
 		time.Sleep(time.Second * 3)
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:deploy", iface)
-		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 3)
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:activate", iface)
-		log.Infof("MCP result is %v", mcpresult)
+
+		/*
+			time.Sleep(time.Second * 5)
+			mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:deploy", iface)
+			log.Infof("MCP result is %v", mcpresult)
+			time.Sleep(time.Second * 5)
+			mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:activate", iface)
+			log.Infof("MCP result is %v", mcpresult)
+		*/
 	}
 	return err
 
+}
+
+func CreateDataService(name string, device string, subscriberid string, profile string, contentprovider string, vlan int, port int) error {
+	if contentprovider == "" || vlan == 0 || profile == "" {
+		log.Errorf("This service is not properly configured %v", name)
+		err := errors.New("Service is missing vlan or CP")
+		return err
+	}
+	var service MCPService
+	service.ServiceContext.ServiceID = name
+	service.ServiceContext.RemoteID = subscriberid
+	service.ServiceContext.CircuitID = subscriberid
+	service.ServiceContext.ProfileName = profile
+
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.OuterTagVlanID = vlan
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.ContentProviderName = contentprovider
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.OuterTagVlanID = "untagged"
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InterfaceName = subscriberid + "-eth" + strconv.Itoa(port)
+	token, err := MCPAuth()
+	var mcpresult MCPResult
+	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
+	log.Infof("MCP result is %v", mcpresult)
+	if err != nil {
+		return err
+	}
+	return err
 }

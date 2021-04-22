@@ -12,6 +12,13 @@ type ONTData struct {
 	Definition telmax.DeviceDefinition
 }
 
+type OLTService struct {
+	Name             string
+	ProductData      telmax.Product
+	SubscribeProduct telmax.SubscribedProduct
+	Vlan             int
+}
+
 type MCPDevice struct {
 	DeviceContext struct {
 		DeviceName       string `json:"device-name"`
@@ -42,27 +49,26 @@ type MCPInterface struct {
 type MCPService struct {
 	ServiceContext struct {
 		ServiceID     string `json:"service-id"`
-		ServiceType   string `json:"service-type"`
+		ServiceType   string `json:"service-type,omitempty"`
 		RemoteID      string `json:"remote-id"`
-		CircuitID     string `json:"circuit-id"`
+		CircuitID     string `json:"agent-circuit-id"`
 		UplinkContext struct {
 			InterfaceEndpoint struct {
-				OuterTagVlanID      string `json:"outer-tag-vlan-id"`
-				InnerTagVlanID      string `json:"inner-tag-vlan-id"`
-				ContentProviderName string `json:"content-provider-name"`
-			}
-		} `json:"uplink-context,omitempty"`
+				OuterTagVlanID      interface{} `json:"outer-tag-vlan-id"`
+				InnerTagVlanID      interface{} `json:"inner-tag-vlan-id"`
+				ContentProviderName string      `json:"content-provider-name"`
+			} `json:"interface-endpoint"`
+		} `json:"uplink-endpoint,omitempty"`
 
 		DownlinkContext struct {
 			InterfaceEndpoint struct {
-				OuterTagVlanID string `json:"outer-tag-vlan-id"`
-				InnerTagVlanID string `json:"inner-tag-vlan-id"`
-				InterfaceName  string `json:"interface-name"`
-			}
-		} `json:"downlink-context,omitempty"`
+				OuterTagVlanID interface{} `json:"outer-tag-vlan-id"`
+				InnerTagVlanID interface{} `json:"inner-tag-vlan-id"`
+				InterfaceName  string      `json:"interface-name"`
+			} `json:"interface-endpoint"`
+		} `json:"downlink-endpoint,omitempty"`
+		ProfileName string `json:"profile-name,omitempty"`
 	} `json:"service-context"`
-
-	ProfileName string `json:"profile-name,omitempty"`
 }
 
 type MCPResult struct {

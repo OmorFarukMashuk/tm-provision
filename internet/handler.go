@@ -50,12 +50,33 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		// Check to see if they have any Internet services
 		pools := map[string]bool{}
 		reservations := map[string]dhcpdb.Reservation{}
+		var services []OLTService
 		for _, product := range request.Products {
 			var productData telmax.Product
+			var servicedata OLTService
 			productData, err = telmax.GetProduct(CoreDB, "product_code", product.ProductCode)
 			if productData.NetworkProfile != nil {
 				profile := *productData.NetworkProfile
 				pools[profile.AddressPool] = true
+				servicedata.ProductData = productData
+				if product.SubProductCode != "" {
+					var subscribeservicearray []telmax.SubscribedProduct
+
+					log.Infof("Getting services - %v", product.SubProductCode)
+					subscribeservicearray, err = telmax.GetServices(CoreDB, []telmax.Filter{telmax.Filter{Key: "subprod_code", Value: product.SubProductCode}})
+					if err != nil {
+						log.Errorf("Problem getting subscribed product details %v", err)
+					} else {
+						servicedata.SubscribeProduct = subscribeservicearray[0]
+						servicedata.Name = subscriber + "-" + servicedata.SubscribeProduct.SubProductCode
+
+					}
+				} else {
+					servicedata.Name = subscriber + "-" + product.Category
+				}
+
+				services = append(services, servicedata)
+
 			}
 		}
 
@@ -96,6 +117,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		if hasONT {
 			var site Site
 			var PON string
+			var ONU int
+			var CP string
 			if subscribe.SiteID != "" {
 				site, err = GetSite(subscribe.SiteID)
 				if err != nil {
@@ -105,12 +128,37 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				PON = site.CircuitData[0].PON
 				if PON == "" {
 					log.Infof("Site %v does not have PON data", site)
+				} else {
+					circuit, err := AssignCircuit(site.WireCentre, PON, subscriber)
+					if err != nil {
+						log.Errorf("Problem assigning circuit %v", err)
+					} else {
+						ONU = circuit.Unit
+						CP = circuit.AccessNode + "-cp"
+						log.Info("ONU and CP is %v %v", ONU, CP)
+					}
 				}
 			}
-			err = CreateONT(subscriber, activeONT, subscribe.Wirecentre, PON)
+
+			err = CreateONT(subscriber, activeONT, PON, ONU)
+			if err != nil {
+				//return
+			}
+			// Add services
+			for _, service := range services {
+				if service.ProductData.NetworkProfile.AddressPool != "" {
+					service.Vlan = reservations[service.ProductData.NetworkProfile.AddressPool].VlanID
+					log.Infof("Vlan ID is %v", service.Vlan)
+				} else {
+					service.Vlan = service.ProductData.NetworkProfile.Vlan
+				}
+				if service.ProductData.Category == "Internet" {
+					CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+				}
+
+			}
 
 		}
-		// Add services
 
 	} else {
 		log.Info("Not a fibre customer")
