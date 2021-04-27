@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/timstpierre/telmax-common"
 	"bitbucket.org/timstpierre/telmax-provision/dhcpdb"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
+	"bitbucket.org/timstpierre/telmax-provision/netdb"
 	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"strconv"
 	"time"
@@ -38,6 +39,9 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
 		log.Errorf("Problem getting subscriber %v", err)
+		result.Result = err.Error()
+		kafka.SubmitResult(result)
+
 	}
 	if subscribe.NetworkType == "Fibre" {
 		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
@@ -66,6 +70,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					subscribeservicearray, err = telmax.GetServices(CoreDB, []telmax.Filter{telmax.Filter{Key: "subprod_code", Value: product.SubProductCode}})
 					if err != nil {
 						log.Errorf("Problem getting subscribed product details %v", err)
+						result.Result = err.Error()
+						kafka.SubmitResult(result)
 					} else {
 						servicedata.SubscribeProduct = subscribeservicearray[0]
 						servicedata.Name = subscriber + "-" + servicedata.SubscribeProduct.SubProductCode
@@ -129,20 +135,38 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				if PON == "" {
 					log.Infof("Site %v does not have PON data", site)
 				} else {
-					circuit, err := AssignCircuit(site.WireCentre, PON, subscriber)
+					circuit, assigned, err := netdb.AllocateCircuit(NetDB, site.WireCentre, PON, subscriber)
 					if err != nil {
 						log.Errorf("Problem assigning circuit %v", err)
+						result.Result = err.Error()
+						kafka.SubmitResult(result)
+						return
 					} else {
+						if !assigned {
+							log.Infof("Circuit was already assigned")
+							result.Result = "Re-using existing circuit ID" + circuit.ID
+							result.Success = true
+							kafka.SubmitResult(result)
+						}
 						ONU = circuit.Unit
 						CP = circuit.AccessNode + "-cp"
-						log.Info("ONU and CP is %v %v", ONU, CP)
+						log.Infof("ONU and CP is %v %v", ONU, CP)
+						result.Result = "Assigned circuit " + circuit.ID + " ONU " + strconv.Itoa(circuit.Unit)
+						result.Success = true
+						kafka.SubmitResult(result)
 					}
 				}
 			}
 
 			err = CreateONT(subscriber, activeONT, PON, ONU)
 			if err != nil {
-				//return
+				result.Result = err.Error()
+				kafka.SubmitResult(result)
+				return
+			} else {
+				result.Result = "Created ONT object"
+				result.Success = true
+				kafka.SubmitResult(result)
 			}
 			// Add services
 			for _, service := range services {
@@ -153,7 +177,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					service.Vlan = service.ProductData.NetworkProfile.Vlan
 				}
 				if service.ProductData.Category == "Internet" {
-					CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+					err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+					if err != nil {
+						log.Errorf("Problem creating service %v - %v", service.Name, err)
+						result.Result = err.Error()
+						kafka.SubmitResult(result)
+					} else {
+						result.Result = "Created service object " + service.Name
+						result.Success = true
+						kafka.SubmitResult(result)
+					}
 				}
 
 			}

@@ -32,13 +32,15 @@ var (
 	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
 	KafkaGroup = flag.String("kafka.group", "internet-olt", "Kafka group id")                                          // Change this to your provision subsystem name
 
-	MongoURI       = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
-	CoreDatabase   = flag.String("coredatabase", "telmaxmb", "Core Database name")
-	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
+	MongoURI     = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
+	CoreDatabase = flag.String("coredatabase", "telmaxmb", "Core Database name")
+	//	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
+	NetworkDatabase = flag.String("networkdatabase", "network", "Database for Networking")
 
 	DBClient *mongo.Client
 	CoreDB   *mongo.Database
 	TicketDB *mongo.Database
+	NetDB    *mongo.Database
 )
 
 //	The state object is mostly used to maintain the state for the Kafka consumer and the database handle
@@ -53,7 +55,8 @@ func init() {
 	DBClient = telmax.DBConnect(*MongoURI, "maxcoredb", "coredbmax955TEL")
 	if DBClient != nil {
 		CoreDB = DBClient.Database(*CoreDatabase)
-		TicketDB = DBClient.Database(*TicketDatabase)
+		//		TicketDB = DBClient.Database(*TicketDatabase)
+		NetDB = DBClient.Database(*NetworkDatabase)
 	}
 
 	brokers := strings.Split(*KafkaBrk, ",")

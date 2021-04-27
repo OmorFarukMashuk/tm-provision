@@ -77,11 +77,72 @@ type MCPResult struct {
 		Tag     string `json:"error-tag"`
 		Message string `json:"error-message"`
 	} `json:"errors"`
-	Output struct {
-		DeviceName string    `json:"device-name"`
-		TimeStamp  time.Time `json:"timestamp"`
-		Status     string    `json:"status"`
-		TransID    string    `json:"trans-id"`
-		Completion string    `json:"completion-status"`
-	}
+	Output MCPTransResult `json:"output"`
+}
+
+type MCPTransResult struct {
+	DeviceName string    `json:"device-name"`
+	TimeStamp  time.Time `json:"timestamp"`
+	Status     string    `json:"status"`
+	TransID    string    `json:"trans-id"`
+	Completion string    `json:"completion-status"`
+}
+
+type MCPDeviceInfo struct {
+	Name       string `json:"device-name"`
+	State      string `json:"state"`
+	Parameters struct {
+		Serial string `json:"serial-number"`
+		Onu    int    `json:"onu-id,omitempty"`
+	} `json:"object-parameters"`
+	PartNumber string `json:"part-number"`
+	MetaData   struct {
+		Inventory struct {
+			Software    string `json:"software-rev"`
+			Serial      string `json:"serial-num"`
+			HardwareRev string `json:"hardware-rev"`
+			Model       string `json:"model-name"`
+			Firmware    string `json:"firmware-rev"`
+		} `json:"inventory"`
+		ProfileVector string `json:"profile-vector-name"`
+		Model         string `json:"model-name"`
+	} `json:"metadata"`
+}
+
+type MCPInterfaceInfo struct {
+	DeviceName    string `json:"device-name"`
+	InterfaceName string `json:"interface-name"`
+	InterfaceType string `json:"interface-type"`
+	State         string `json:"state"`
+	InterfaceID   string `json:"interface-id,omitempty"`
+	ProfileVector string `json:"profile-vector-name,omitempty"`
+}
+
+type MCPServiceInfo struct {
+	State        string `json:"state"`
+	Status       string `json:"status"`
+	ServiceType  string `json:"service-type,omitempty"`
+	ProfileName  string `json:"profile-name,omitempty"`
+	ServiceID    string `json:"service-id"`
+	ServiceState string `json:"service-state"`
+	CircuitID    string `json:"agent-circuit-id"`
+	Uplink       struct {
+		InterfaceEndpoint struct {
+			DeviceName          string      `json:"device-name"`
+			InterfaceName       string      `json:"interface-name"`
+			OuterTagVlanID      interface{} `json:"outer-tag-vlan-id"`
+			InnerTagVlanID      interface{} `json:"inner-tag-vlan-id"`
+			InterfaceID         string      `json:"interface-id"`
+			ContentProviderName string      `json:"content-provider-name"`
+		} `json:"interface-endpoint"`
+	} `json:"uplink-endpoint,omitempty"`
+
+	Downlink struct {
+		InterfaceEndpoint struct {
+			DeviceName     string      `json:"device-name"`
+			OuterTagVlanID interface{} `json:"outer-tag-vlan-id"`
+			InnerTagVlanID interface{} `json:"inner-tag-vlan-id"`
+			InterfaceID    string      `json:"interface-id"`
+		} `json:"interface-endpoint"`
+	} `json:"downlink-endpoint,omitempty"`
 }

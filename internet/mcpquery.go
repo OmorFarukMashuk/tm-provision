@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	MCPURL      = flag.String("mcpurl", "https://mcp01.dc1.osh.telmax.ca/api/restconf/operations/", "URL and prefix for MCP Interaction")
+	MCPURL      = flag.String("mcpurl", "https://mcp01.dc1.osh.telmax.ca/api/restconf/", "URL and prefix for MCP Interaction")
 	MCPUsername = flag.String("mcpusername", "tim", "MCP Username")
 	MCPPassword = flag.String("mcppassword", "N3wjob!", "MCP Password")
 )
@@ -27,7 +27,7 @@ func MCPAuth() (token string, err error) {
 		Timeout:   time.Second * 4,
 		Transport: tr,
 	}
-	url := *MCPURL + "adtran-auth-token:request-token"
+	url := *MCPURL + "operations/adtran-auth-token:request-token"
 	var req *http.Request
 	var jsonStr []byte
 	var authData struct {
@@ -69,7 +69,7 @@ func MCPAuth() (token string, err error) {
 		}
 		err = json.Unmarshal(result, &responseData)
 		if err != nil {
-			log.Errorf("Problem unmarshalling auth request %v", err)
+			log.Errorf("Problem unmarshalling auth request %v - %v", string(result), err)
 		} else {
 			token = responseData.Token
 			if token != "" {
@@ -91,7 +91,7 @@ func MCPRequest(authtoken string, command string, data interface{}) (mcpresponse
 		Timeout:   time.Second * 4,
 		Transport: tr,
 	}
-	url := *MCPURL + command
+	url := *MCPURL + "operations/" + command
 	var req *http.Request
 	var jsonStr []byte
 	var dataObj struct {
@@ -133,6 +133,35 @@ func MCPRequest(authtoken string, command string, data interface{}) (mcpresponse
 	return
 }
 
+func MCPQuery(authtoken string, query string) (result []byte, err error) {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	Client := http.Client{
+		Timeout:   time.Second * 4,
+		Transport: tr,
+	}
+	url := *MCPURL + "data/" + query
+	var req *http.Request
+	log.Debugf("Query string is %v", query)
+	req, err = http.NewRequest(http.MethodPost, url, bytes.NewBuffer([]byte(query)))
+	if err != nil {
+		log.Errorf("Problem generating HTTP request %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+authtoken)
+	var response *http.Response
+	response, err = Client.Do(req)
+	if err != nil {
+		log.Errorf("Problem with HTTP request execution %v", err)
+		return
+	}
+	defer response.Body.Close()
+	result, err = ioutil.ReadAll(response.Body)
+	log.Debugf("MCP response raw was %v", string(result))
+	return
+}
+
 func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	token, err := MCPAuth()
 	if err != nil {
@@ -149,6 +178,19 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	}
 	var device MCPDevice
 	device.DeviceContext.DeviceName = subscriber + "-ONT"
+
+	var deviceInfo MCPDeviceInfo
+	deviceInfo, err = GetDevice(token, device.DeviceContext.DeviceName)
+	if deviceInfo.State == "deployed" {
+		log.Infof("Device already deployed!")
+		if ONT.Device.Serial != deviceInfo.Parameters.Serial {
+			log.Errorf("Device deployed with different serial!")
+			err = errors.New("Subscriber " + subscriber + " ONT already deployed with serial number " + deviceInfo.Parameters.Serial)
+		}
+		return err
+	}
+	log.Errorf("Checked for existing device - error was %v", err)
+
 	device.DeviceContext.ModelName = ONT.Definition.Model
 	device.DeviceContext.ProfileVector = "ONU Config Vector"
 	var emptystruct struct{}
@@ -209,6 +251,17 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 		err := errors.New("Service is missing vlan or CP")
 		return err
 	}
+	token, err := MCPAuth()
+	var serviceInfo MCPServiceInfo
+	serviceInfo, err = GetService(token, name)
+	if serviceInfo.State == "deployed" {
+		log.Info("Service is already deployed")
+		if serviceInfo.Uplink.InterfaceEndpoint.OuterTagVlanID != vlan {
+			log.Errorf("Service %v created with wrong vLAN", name)
+			err = errors.New("Service " + name + " already created, but vLANs do not match!")
+		}
+		return err
+	}
 	var service MCPService
 	service.ServiceContext.ServiceID = name
 	service.ServiceContext.RemoteID = subscriberid
@@ -221,7 +274,6 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.OuterTagVlanID = "untagged"
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InterfaceName = subscriberid + "-eth" + strconv.Itoa(port)
-	token, err := MCPAuth()
 	var mcpresult MCPResult
 	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
 	log.Infof("MCP result is %v", mcpresult)
@@ -229,4 +281,34 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 		return err
 	}
 	return err
+}
+
+func GetDevice(token string, name string) (data MCPDeviceInfo, err error) {
+	query := "adtran-cloud-platform-uiworkflow-devices:devices/device=" + name
+	var result []byte
+	result, err = MCPQuery(token, query)
+	if err != nil {
+		log.Errorf("Problem with device query %v", err)
+		return
+	}
+	err = json.Unmarshal(result, &data)
+	if err != nil {
+		log.Errorf("Problem unmarshalling query result %v", err)
+	}
+	return
+}
+
+func GetService(token string, name string) (data MCPServiceInfo, err error) {
+	query := "adtran-cloud-platform-uiworkflow-services:services/service=" + name
+	var result []byte
+	result, err = MCPQuery(token, query)
+	if err != nil {
+		log.Errorf("Problem with service query %v", err)
+		return
+	}
+	err = json.Unmarshal(result, &data)
+	if err != nil {
+		log.Errorf("Problem unmarshalling query result %v", err)
+	}
+	return
 }
