@@ -4,21 +4,23 @@ import (
 	"bitbucket.org/timstpierre/telmax-common"
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/xml"
 	"errors"
+	"flag"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 	"io/ioutil"
 	"net/http"
 	"time"
-	"crypto/x509"
 )
 
 var (
 	EHusername      string = "telmax_billing"
 	EHpasswd        string = "691DistanceMedium300"
-	EHURL           string = "https://billing.moxi.com/billing/UpdateAccount/1?MSO=TELMAX"
+	EHURL           string = "https://telmax-billing.moxi.com/billing/UpdateAccount/1?MSO=TELMAX"
+	EHSkipVerify           = flag.Bool("skiptls", false, "Skip TLS verification with Enghouse")
 	DefaultServices        = []string{
 		"IPTV_CUTV",
 		"IPTV_NDVR_50",
@@ -26,57 +28,14 @@ var (
 		"IPTV_RSTV",
 	}
 )
-	const RootCertificatePath string = "Portal-Operations-cert.crt"
 
+const RootCertificatePath string = "/etc/ssl/Portal-Operations-cert.crt"
 
-// This is now in a separate file
-/*
-type Enghouse struct {
-	XMLName     xml.Name   `xml:"digeoAPI"`
-	MSOCode     string     `xml:"MSOCode,attr"`
-	Version     string     `xml:"version,attr"`
-	Transaction []EngTrans `xml:"transaction"`
-}
-
-type EngTrans struct {
-	//	Transaction     xml.Name      `xml:"transaction"`
-	Action         string `xml:"action,attr"`
-	MSOAccountID   string `xml:"MSOAccountID,attr"`
-	TransID        string `xml:"transID,attr"`
-	TransTime      string `xml:"transTime,attr"`
-	Account_status string `xml:"account_status"`
-	MSO_account_id string `xml:"mso_account_id"`
-	//        Old_mso_account_id      string     `xml:"old_mso_account_id"`
-	MSO_market_id string `xml:"mso_market_id"`
-	First_name    string `xml:"first_name"`
-	Country       string `xml:"country"`
-	//        Headend_id      string  `xml:"headend_id"`
-	Channelmap_id string       `xml:"channelmap_id"`
-	Service       []EngService `xml:"service_codes"`
-	Devices       []EngDevices `xml:"devices"`
-}
-
-type EngService struct {
-	Text          string `xml:",chardata"`
-	Service_codes string `xml:"service_code"`
-}
-
-type EngDevices struct {
-	Text   string      `xml:",chardata"`
-	Device []EngDevice `xml:"device"`
-}
-
-type EngDevice struct {
-	Text             string `xml:",chardata"`
-	HardwareDeviceID string `xml:"hardwareDeviceID,attr"`
-}
-
-*/
 func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	var err error
 
 	requestdate := time.Now().Format("20060102150405")
-	log.Info("Request date string is %v", requestdate)
+	log.Infof("Request date string is %v", requestdate)
 	accountdata.TransID = requestID
 	accountdata.TransTime = requestdate
 	transaction := Enghouse{
@@ -86,28 +45,29 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 			accountdata,
 		},
 	}
+	var client http.Client
+	if *EHSkipVerify {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		client = http.Client{Transport: tr}
+	} else {
 
-/*
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
+		rootCAPool := x509.NewCertPool()
+		rootCA, err := ioutil.ReadFile(RootCertificatePath)
+		if err != nil {
+			log.Fatalf("reading cert failed : %v", err)
+		}
+		rootCAPool.AppendCertsFromPEM(rootCA)
+		client = http.Client{
+			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				IdleConnTimeout: 10 * time.Second,
+				TLSClientConfig: &tls.Config{RootCAs: rootCAPool},
+			},
+		}
 	}
-*/
-//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
-        rootCAPool := x509.NewCertPool()
-        rootCA, err := ioutil.ReadFile(RootCertificatePath)
-        if err != nil {
-                log.Fatalf("reading cert failed : %v", err)
-        }
-        rootCAPool.AppendCertsFromPEM(rootCA)
-//	client := &http.Client{Transport: tr}
-	client := http.Client{
-                Timeout: 5 * time.Second,
-                Transport: &http.Transport{
-                        IdleConnTimeout: 10 * time.Second,
-                        TLSClientConfig: &tls.Config{RootCAs: rootCAPool,},
-                },
-        }
-
 	// Create this in a different function.  Use this one just to do the API call.
 	/*
 		xml_string := Enghouse{
@@ -170,19 +130,24 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	//    	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 	req.SetBasicAuth(EHusername, EHpasswd)
 	resp, err := client.Do(req)
-	log.Debug("http", resp.StatusCode, http.StatusText(resp.StatusCode))
+	log.Infof("response is %v", resp)
+	if resp != nil {
+
+		log.Debugf("http response status: %v %v", resp.StatusCode, http.StatusText(resp.StatusCode))
+	}
 	//	fmt.Println(resp)
 	//	fmt.Println(err)
 	if err != nil {
 		log.Error(err)
-	}
-	if resp.StatusCode != 200 {
-		bodyData, _ := ioutil.ReadAll(resp.Body)
-		bodyText := string(bodyData)
-		//		log.Errorf("Problem with API call to Enghouse %v", bodyText)
-		err = errors.New(bodyText)
 	} else {
-		log.Info("API Call successful!")
+		if resp.StatusCode != 200 {
+			bodyData, _ := ioutil.ReadAll(resp.Body)
+			bodyText := string(bodyData)
+			//		log.Errorf("Problem with API call to Enghouse %v", bodyText)
+			err = errors.New(bodyText)
+		} else {
+			log.Info("API Call successful!")
+		}
 	}
 
 	// Handle the error somehow
@@ -197,6 +162,14 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 	// Get the subscribe record - this has the essential details in it
 	var subscribe telmax.Subscribe
 	subscribe, err = telmax.GetSubscribe(CoreDB, accountcode, subscribecode)
+	if subscribe.SubscribeCode == "" {
+		err = errors.New("Subscribe not found!")
+		return
+	}
+	if subscribe.TVUsername == "" {
+		subscribe.AddTVUser()
+		subscribe.Update(CoreDB)
+	}
 
 	// Rough in the strcuture with the data we know.
 	accountdata = EngTrans{
@@ -236,9 +209,9 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 	for _, channel := range channels {
 		var productData telmax.Product
 		productData, err = telmax.GetProduct(CoreDB, "product_code", channel.ProductCode)
-		if productData.EnghouseCode != "" {
+		if productData.EnghouseCode != nil {
 			accountdata.Service = append(accountdata.Service, EngService{
-				Service_codes: productData.EnghouseCode,
+				Service_codes: *productData.EnghouseCode,
 			})
 		}
 	}
