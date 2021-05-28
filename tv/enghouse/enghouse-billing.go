@@ -17,19 +17,19 @@ import (
 )
 
 var (
-	EHusername      string = "telmax_billing"
-	EHpasswd        string = "691DistanceMedium300"
-	EHURL           string = "https://telmax-billing.moxi.com/billing/UpdateAccount/1?MSO=TELMAX"
-	EHSkipVerify           = flag.Bool("skiptls", false, "Skip TLS verification with Enghouse")
-	DefaultServices        = []string{
+	EHusername          string = "telmax_billing"
+	EHpasswd            string = "691DistanceMedium300"
+	EHURL               string = "https://telmax-billing.moxi.com/billing/UpdateAccount/1?MSO=TELMAX"
+	RootCertificatePath        = flag.String("cacert", "/etc/ssl/cert.pem", "Path to the CA certificate")
+
+	EHSkipVerify    = flag.Bool("skiptls", false, "Skip TLS verification with Enghouse")
+	DefaultServices = []string{
 		"IPTV_CUTV",
 		"IPTV_NDVR_50",
 		"IPTV_PLTV",
 		"IPTV_RSTV",
 	}
 )
-
-const RootCertificatePath string = "/etc/ssl/Portal-Operations-cert.crt"
 
 func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	var err error
@@ -55,7 +55,7 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 
 		//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
 		rootCAPool := x509.NewCertPool()
-		rootCA, err := ioutil.ReadFile(RootCertificatePath)
+		rootCA, err := ioutil.ReadFile(*RootCertificatePath)
 		if err != nil {
 			log.Fatalf("reading cert failed : %v", err)
 		}
