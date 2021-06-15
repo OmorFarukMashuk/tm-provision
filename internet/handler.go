@@ -45,8 +45,23 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	}
 	if subscribe.NetworkType == "Fibre" {
 		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
-		if subscribe.Wirecentre == "" {
-			result.Result = "Subscriber wirecentre not set - mandatory!"
+		var site Site
+		var PON string
+
+		if subscribe.SiteID != "" {
+			site, err = GetSite(subscribe.SiteID)
+			if err != nil {
+				log.Errorf("Problem getting site %v", err)
+				result.Result = "Problem getting site data from QGIS " + err.Error()
+				kafka.SubmitResult(result)
+				return
+			}
+			log.Infof("Site data is %v", site)
+			PON = site.CircuitData[0].PON
+
+			//		if subscribe.Wirecentre == "" {
+		} else {
+			result.Result = "Subscriber site ID not set - mandatory!"
 			kafka.SubmitResult(result)
 			return
 		}
@@ -88,7 +103,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 		// If yes, then assign an IP address in DHCP
 		for pool, _ := range pools {
-			reservations[pool], err = dhcpdb.DhcpAssign(subscribe.Wirecentre, pool, subscriber)
+			reservations[pool], err = dhcpdb.DhcpAssign(site.WireCentre, pool, subscriber)
 			var resulttext string
 			if err != nil {
 				resulttext = resulttext + "Problem assigning address " + err.Error() + "\n"
@@ -121,76 +136,65 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		}
 		// Create ONT record
 		if hasONT {
-			var site Site
-			var PON string
 			var ONU int
 			var CP string
-			if subscribe.SiteID != "" {
-				site, err = GetSite(subscribe.SiteID)
+			if PON == "" {
+				log.Infof("Site %v does not have PON data", site)
+			} else {
+				circuit, assigned, err := netdb.AllocateCircuit(NetDB, site.WireCentre, PON, subscriber)
 				if err != nil {
-					log.Errorf("Problem getting site %v", err)
-				}
-				log.Infof("Site data is %v", site)
-				PON = site.CircuitData[0].PON
-				if PON == "" {
-					log.Infof("Site %v does not have PON data", site)
+					log.Errorf("Problem assigning circuit %v", err)
+					result.Result = err.Error()
+					kafka.SubmitResult(result)
+					return
 				} else {
-					circuit, assigned, err := netdb.AllocateCircuit(NetDB, site.WireCentre, PON, subscriber)
-					if err != nil {
-						log.Errorf("Problem assigning circuit %v", err)
-						result.Result = err.Error()
+					if !assigned {
+						log.Infof("Circuit was already assigned")
+						result.Result = "Re-using existing circuit ID" + circuit.ID
+						result.Success = true
 						kafka.SubmitResult(result)
-						return
+					}
+					ONU = circuit.Unit
+					CP = circuit.AccessNode + "-cp"
+					log.Infof("ONU and CP is %v %v", ONU, CP)
+					result.Result = "Assigned circuit " + circuit.ID + " ONU " + strconv.Itoa(circuit.Unit)
+					result.Success = true
+					kafka.SubmitResult(result)
+				}
+
+				err = CreateONT(subscriber, activeONT, PON, ONU)
+				if err != nil {
+					result.Result = err.Error()
+					kafka.SubmitResult(result)
+					return
+				} else {
+					result.Result = "Created ONT object"
+					result.Success = true
+					kafka.SubmitResult(result)
+				}
+				// Add services
+				for _, service := range services {
+					if service.ProductData.NetworkProfile.AddressPool != "" {
+						service.Vlan = reservations[service.ProductData.NetworkProfile.AddressPool].VlanID
+						log.Infof("Vlan ID is %v", service.Vlan)
 					} else {
-						if !assigned {
-							log.Infof("Circuit was already assigned")
-							result.Result = "Re-using existing circuit ID" + circuit.ID
+						service.Vlan = service.ProductData.NetworkProfile.Vlan
+					}
+					if service.ProductData.Category == "Internet" {
+						err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+						if err != nil {
+							log.Errorf("Problem creating service %v - %v", service.Name, err)
+							result.Result = err.Error()
+							kafka.SubmitResult(result)
+						} else {
+							result.Result = "Created service object " + service.Name
 							result.Success = true
 							kafka.SubmitResult(result)
 						}
-						ONU = circuit.Unit
-						CP = circuit.AccessNode + "-cp"
-						log.Infof("ONU and CP is %v %v", ONU, CP)
-						result.Result = "Assigned circuit " + circuit.ID + " ONU " + strconv.Itoa(circuit.Unit)
-						result.Success = true
-						kafka.SubmitResult(result)
 					}
+
 				}
 			}
-
-			err = CreateONT(subscriber, activeONT, PON, ONU)
-			if err != nil {
-				result.Result = err.Error()
-				kafka.SubmitResult(result)
-				return
-			} else {
-				result.Result = "Created ONT object"
-				result.Success = true
-				kafka.SubmitResult(result)
-			}
-			// Add services
-			for _, service := range services {
-				if service.ProductData.NetworkProfile.AddressPool != "" {
-					service.Vlan = reservations[service.ProductData.NetworkProfile.AddressPool].VlanID
-					log.Infof("Vlan ID is %v", service.Vlan)
-				} else {
-					service.Vlan = service.ProductData.NetworkProfile.Vlan
-				}
-				if service.ProductData.Category == "Internet" {
-					err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
-					if err != nil {
-						log.Errorf("Problem creating service %v - %v", service.Name, err)
-						result.Result = err.Error()
-						kafka.SubmitResult(result)
-					} else {
-						result.Result = "Created service object " + service.Name
-						result.Success = true
-						kafka.SubmitResult(result)
-					}
-				}
-
-			}
-
 		}
 
 	} else {
