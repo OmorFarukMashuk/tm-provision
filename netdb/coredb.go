@@ -1,6 +1,6 @@
 // Implement a provisioning API to query status and request provisioning of network elements on the telMAX network.
 //
-package main
+package netdb
 
 import (
 	"context"
