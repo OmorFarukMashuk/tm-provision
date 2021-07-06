@@ -24,6 +24,7 @@ type EngTrans struct {
 	//        Old_mso_account_id      string     `xml:"old_mso_account_id"`
 	MSO_market_id string `xml:"mso_market_id"`
 	First_name    string `xml:"first_name"`
+	PostalCode	string	`xml:"postal_code"`
 	Country       string `xml:"country"`
 	//        Headend_id      string  `xml:"headend_id"`
 	Channelmap_id string       `xml:"channelmap_id"`

@@ -182,6 +182,7 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		MSO_account_id: subscribe.AccountCode + subscribe.SubscribeCode,
 		MSO_market_id:  "Telmax",
 		First_name:     subscribe.FirstName,
+		PostalCode:	subscribe.PostalCode,
 		Country:        "CA",
 		Channelmap_id:  "CMAP_TELMAX_UNICAST_RESIDENTIAL",
 	}

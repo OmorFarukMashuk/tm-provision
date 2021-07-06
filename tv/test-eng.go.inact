@@ -8,10 +8,10 @@ import (
 	"encoding/xml"
 	"log"
 	"net/http"
-	"telmax-provision/tv/enghouse"
+//	"telmax-provision/tv/enghouse"
 )
 
-/*
+
 type Enghouse struct {
 	XMLName  	xml.Name `xml:"digeoAPI"`
         MSOCode         string    `xml:"MSOCode,attr"`
@@ -30,6 +30,7 @@ type EngTrans struct {
 //        Old_mso_account_id      string     `xml:"old_mso_account_id"`
         MSO_market_id   string  `xml:"mso_market_id"`
         First_name      string  `xml:"first_name"`
+	PostalCode	string	`xml:"postal_code"`
         Country         string  `xml:"country"`
 //        Headend_id      string  `xml:"headend_id"`
         Channelmap_id   string  `xml:"channelmap_id"`
@@ -51,7 +52,7 @@ type EngDevice struct {
 	Text 		string	`xml:",chardata"`
 	HardwareDeviceID	string   `xml:"hardwareDeviceID,attr"`
 }
-*/
+//*/
 
 func retrieveEngData() *Enghouse {
 
@@ -70,12 +71,13 @@ func retrieveEngData() *Enghouse {
 				//        	Old_mso_account_id: " ",
 				MSO_market_id: "Telmax",
 				First_name:    "Tim",
+				PostalCode:    "L3M 3R4",
 				Country:       "CA",
 				//        	Headend_id:	"PHE_TELMAX",
 				Channelmap_id: "CMAP_TELMAX_UNICAST_RESIDENTIAL",
 				Service: []EngService{
 					{
-						Service_codes: "IPTV_NDVR_50",
+						Service_codes: "IPTV_CUTV",
 					},
 				}, // `xml:"service_codes"`
 				Devices: []EngDevices{
