@@ -40,7 +40,7 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	accountdata.TransTime = requestdate
 	transaction := Enghouse{
 		MSOCode: "TELMAX",
-		Version: "1.0.0",
+		Version: "1.0.1",
 		Transaction: []EngTrans{
 			accountdata,
 		},
@@ -117,8 +117,8 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	//    fmt.Printf("%s\n", myString)
 	//	fmt.Println(xmlStr)
 
-	xmlStr3 := bytes.NewBuffer(xmlStr2)
-	log.Debugf("%s\n", xmlStr3)
+	//xmlStr3 := bytes.NewBuffer(xmlStr2)
+	//log.Debugf("%s\n", xmlStr2)
 
 	// Main Server
 	var req *http.Request
@@ -182,7 +182,7 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		MSO_account_id: subscribe.AccountCode + subscribe.SubscribeCode,
 		MSO_market_id:  "Telmax",
 		First_name:     subscribe.FirstName,
-		PostalCode:	subscribe.PostalCode,
+		PostalCode:	"L6J2T8",   //subscribe.Address.PostalCode,
 		Country:        "CA",
 		Channelmap_id:  "CMAP_TELMAX_UNICAST_RESIDENTIAL",
 	}
