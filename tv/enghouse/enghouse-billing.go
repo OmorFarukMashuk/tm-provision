@@ -50,7 +50,10 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
-		client = http.Client{Transport: tr}
+		client = http.Client{
+			Transport: tr,
+			Timeout:   10 * time.Second,
+		}
 	} else {
 
 		//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
@@ -61,7 +64,7 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 		}
 		rootCAPool.AppendCertsFromPEM(rootCA)
 		client = http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				IdleConnTimeout: 10 * time.Second,
 				TLSClientConfig: &tls.Config{RootCAs: rootCAPool},
@@ -182,7 +185,7 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		MSO_account_id: subscribe.AccountCode + subscribe.SubscribeCode,
 		MSO_market_id:  "Telmax",
 		First_name:     subscribe.FirstName,
-		PostalCode:	subscribe.Address.PostalCode,
+		PostalCode:     subscribe.Address.PostalCode,
 		Country:        "CA",
 		Channelmap_id:  "CMAP_TELMAX_UNICAST_RESIDENTIAL",
 	}
