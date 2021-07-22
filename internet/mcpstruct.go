@@ -48,10 +48,15 @@ type MCPInterface struct {
 
 type MCPService struct {
 	ServiceContext struct {
-		ServiceID     string `json:"service-id"`
-		ServiceType   string `json:"service-type,omitempty"`
-		RemoteID      string `json:"remote-id"`
-		CircuitID     string `json:"agent-circuit-id"`
+		ServiceID        string `json:"service-id"`
+		ServiceType      string `json:"service-type,omitempty"`
+		RemoteID         string `json:"remote-id"`
+		CircuitID        string `json:"agent-circuit-id"`
+		ObjectParameters struct {
+			SIPIdentity string `json:"sip-identity"`
+			SIPUser     string `json:"sip-user-name"`
+			SIPPassword string `json:"sip-password"`
+		} `json:"object-parameters,omitempty"`
 		UplinkContext struct {
 			InterfaceEndpoint struct {
 				OuterTagVlanID      interface{} `json:"outer-tag-vlan-id"`
@@ -93,7 +98,7 @@ type MCPDeviceInfo struct {
 	State      string `json:"state"`
 	Parameters struct {
 		Serial string `json:"serial-number"`
-		Onu    int    `json:"onu-id,omitempty"`
+		Onu    int    `json:"onu-id,string,omitempty"`
 	} `json:"object-parameters"`
 	PartNumber string `json:"part-number"`
 	MetaData   struct {
@@ -119,14 +124,19 @@ type MCPInterfaceInfo struct {
 }
 
 type MCPServiceInfo struct {
-	State        string `json:"state"`
-	Status       string `json:"status"`
-	ServiceType  string `json:"service-type,omitempty"`
-	ProfileName  string `json:"profile-name,omitempty"`
-	ServiceID    string `json:"service-id"`
-	ServiceState string `json:"service-state"`
-	CircuitID    string `json:"agent-circuit-id"`
-	Uplink       struct {
+	State            string `json:"state"`
+	Status           string `json:"status"`
+	ServiceType      string `json:"service-type,omitempty"`
+	ProfileName      string `json:"profile-name,omitempty"`
+	ServiceID        string `json:"service-id"`
+	ServiceState     string `json:"service-state"`
+	CircuitID        string `json:"agent-circuit-id"`
+	ObjectParameters struct {
+		SIPIdentity string `json:"sip-identity"`
+		SIPUser     string `json:"sip-user-name"`
+		SIPPassword string `json:"sip-password"`
+	} `json:"object-parameters,omitempty"`
+	Uplink struct {
 		InterfaceEndpoint struct {
 			DeviceName          string      `json:"device-name"`
 			InterfaceName       string      `json:"interface-name"`

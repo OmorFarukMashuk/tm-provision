@@ -62,7 +62,7 @@ func MCPAuth() (token string, err error) {
 		log.Errorf("Problem Reading HTTP Response %v", err)
 		return
 	} else {
-		log.Infof("Authorization response was %v", string(result))
+		log.Debugf("Authorization response was %v", string(result))
 		var responseData struct {
 			Token   string `json:"token"`
 			Message string `json:"message"`
@@ -73,7 +73,7 @@ func MCPAuth() (token string, err error) {
 		} else {
 			token = responseData.Token
 			if token != "" {
-				log.Infof("Auth token is %v", token)
+				log.Debugf("Auth token is %v", token)
 			} else {
 				err = errors.New(responseData.Message)
 				log.Errorf("Problem authorizing with MCP - %v", responseData.Message)
@@ -144,7 +144,7 @@ func MCPQuery(authtoken string, query string) (result []byte, err error) {
 	url := *MCPURL + "data/" + query
 	var req *http.Request
 	log.Debugf("Query string is %v", query)
-	req, err = http.NewRequest(http.MethodPost, url, bytes.NewBuffer([]byte(query)))
+	req, err = http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		log.Errorf("Problem generating HTTP request %v", err)
 		return
@@ -189,6 +189,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		}
 		return err
 	}
+	log.Infof("Device info is %v", deviceInfo)
 	log.Errorf("Checked for existing device - error was %v", err)
 
 	device.DeviceContext.ModelName = ONT.Definition.Model
@@ -241,6 +242,19 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 			log.Infof("MCP result is %v", mcpresult)
 		*/
 	}
+
+	// Create FXS Interfaces
+	for index := 0; index < int(ONT.Definition.PotsPorts); index++ {
+		var iface MCPInterface
+		iface.InterfaceContext.InterfaceName = subscriber + "-fxs" + strconv.Itoa(index+1)
+		iface.InterfaceContext.InterfaceType = "fxs"
+		iface.InterfaceContext.DeviceName = subscriber + "-ONT"
+		iface.InterfaceContext.InterfaceID = "fxs 0/" + strconv.Itoa(index+1)
+		iface.InterfaceContext.ProfileVector = "FXS Interface Profile Vector"
+		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
+		log.Infof("MCP result is %v", mcpresult)
+		time.Sleep(time.Second * 3)
+	}
 	return err
 
 }
@@ -256,7 +270,7 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	serviceInfo, err = GetService(token, name)
 	if serviceInfo.State == "deployed" {
 		log.Info("Service is already deployed")
-		if serviceInfo.Uplink.InterfaceEndpoint.OuterTagVlanID != vlan {
+		if int(serviceInfo.Uplink.InterfaceEndpoint.OuterTagVlanID.(float64)) != vlan {
 			log.Errorf("Service %v created with wrong vLAN", name)
 			err = errors.New("Service " + name + " already created, but vLANs do not match!")
 		}
@@ -275,6 +289,52 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InterfaceName = subscriberid + "-eth" + strconv.Itoa(port)
 	var mcpresult MCPResult
+	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
+	log.Infof("MCP result is %v", mcpresult)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+// Create a voice service
+func CreatePhoneService(name string, device string, subscriberid string, profile string, contentprovider string, vlan int, number string, password string, port int) error {
+	log.Infof("Adding phone service to %v on port %v", device, port)
+	if contentprovider == "" || vlan == 0 || profile == "" {
+		log.Errorf("This service is not properly configured %v", name)
+		err := errors.New("Service is missing vlan or CP")
+		return err
+	}
+	token, err := MCPAuth()
+	var serviceInfo MCPServiceInfo
+	serviceInfo, err = GetService(token, name)
+	if serviceInfo.State == "deployed" {
+		log.Info("Service is already deployed")
+		if int(serviceInfo.Uplink.InterfaceEndpoint.OuterTagVlanID.(float64)) != vlan {
+			log.Errorf("Service %v created with wrong vLAN", name)
+			err = errors.New("Service " + name + " already created, but vLANs do not match!")
+		}
+		return err
+	}
+	var service MCPService
+	service.ServiceContext.ServiceID = name
+	service.ServiceContext.RemoteID = subscriberid
+	service.ServiceContext.CircuitID = subscriberid
+	service.ServiceContext.ProfileName = profile
+	service.ServiceContext.ServiceType = "voice-sip-service"
+
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.OuterTagVlanID = vlan
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
+	service.ServiceContext.UplinkContext.InterfaceEndpoint.ContentProviderName = contentprovider
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.OuterTagVlanID = "untagged"
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
+	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InterfaceName = subscriberid + "-fxs" + strconv.Itoa(port)
+	service.ServiceContext.ObjectParameters.SIPIdentity = number
+	service.ServiceContext.ObjectParameters.SIPUser = number
+	service.ServiceContext.ObjectParameters.SIPPassword = password
+
+	var mcpresult MCPResult
+	log.Infof("Service data for phone is %v", service)
 	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
 	log.Infof("MCP result is %v", mcpresult)
 	if err != nil {

@@ -70,13 +70,17 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		pools := map[string]bool{}
 		reservations := map[string]dhcpdb.Reservation{}
 		var services []OLTService
+		log.Warn("Iterating through products to see which ones have a network profile")
 		for _, product := range request.Products {
 			var productData telmax.Product
 			var servicedata OLTService
 			productData, err = telmax.GetProduct(CoreDB, "product_code", product.ProductCode)
 			if productData.NetworkProfile != nil {
 				profile := *productData.NetworkProfile
-				pools[profile.AddressPool] = true
+				if profile.AddressPool != "" {
+					pools[profile.AddressPool] = true
+					log.Infof("Adding %v to the dhcp pool list", profile.AddressPool)
+				}
 				servicedata.ProductData = productData
 				if product.SubProductCode != "" {
 					var subscribeservicearray []telmax.SubscribedProduct
@@ -102,6 +106,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		}
 
 		// If yes, then assign an IP address in DHCP
+		log.Warn("Allocating addresses in DHCP pools")
 		for pool, _ := range pools {
 			reservations[pool], err = dhcpdb.DhcpAssign(site.WireCentre, pool, subscriber)
 			var resulttext string
@@ -138,9 +143,14 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		if hasONT {
 			var ONU int
 			var CP string
+
+			// Check for PON assignment
 			if PON == "" {
-				log.Infof("Site %v does not have PON data", site)
+				log.Errorf("Site %v does not have PON data", site)
+				result.Result = "PON data missing for site"
+				kafka.SubmitResult(result)
 			} else {
+				// Assign a circuit and ONU ID
 				circuit, assigned, err := netdb.AllocateCircuit(NetDB, site.WireCentre, PON, subscriber)
 				if err != nil {
 					log.Errorf("Problem assigning circuit %v", err)
@@ -154,6 +164,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 						result.Success = true
 						kafka.SubmitResult(result)
 					}
+					// Set variables for the circuit and content provider strings
 					ONU = circuit.Unit
 					CP = circuit.AccessNode + "-cp"
 					log.Infof("ONU and CP is %v %v", ONU, CP)
@@ -161,7 +172,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					result.Success = true
 					kafka.SubmitResult(result)
 				}
-
+				// Create the ONT record in MCP
 				err = CreateONT(subscriber, activeONT, PON, ONU)
 				if err != nil {
 					result.Result = err.Error()
@@ -172,6 +183,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					result.Success = true
 					kafka.SubmitResult(result)
 				}
+
 				// Add services
 				for _, service := range services {
 					if service.ProductData.NetworkProfile.AddressPool != "" {
@@ -180,19 +192,62 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					} else {
 						service.Vlan = service.ProductData.NetworkProfile.Vlan
 					}
-					if service.ProductData.Category == "Internet" {
-						err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
-						if err != nil {
-							log.Errorf("Problem creating service %v - %v", service.Name, err)
-							result.Result = err.Error()
-							kafka.SubmitResult(result)
-						} else {
-							result.Result = "Created service object " + service.Name
-							result.Success = true
-							kafka.SubmitResult(result)
-						}
-					}
+					switch service.ProductData.Category {
 
+					case "Internet":
+						log.Infof("creating Internet service %v", service.ProductData.NetworkProfile.ProfileName)
+						err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+						break
+					case "Phone":
+						break
+					}
+					if err != nil {
+						log.Errorf("Problem creating service %v - %v", service.Name, err)
+						result.Result = err.Error()
+						kafka.SubmitResult(result)
+					} else {
+						result.Result = "Created service object " + service.Name
+						result.Success = true
+						kafka.SubmitResult(result)
+
+					}
+				}
+
+				// Add POTS ports
+				for _, voicesvc := range activeONT.Device.VoiceServices {
+					if voicesvc.Username != "" {
+						log.Infof("Creating voice service for DID %v", voicesvc.Username)
+						var profile string
+						var voicevlan int
+						switch voicesvc.Domain {
+						case "residential.telmax.ca":
+							profile = "telmax-res-voice"
+							voicevlan = 202
+							break
+						default:
+							profile = "telmax-res-voice"
+							voicevlan = 202
+							break
+						}
+						var did DID
+						did, err = GetDID(voicesvc.Username)
+						log.Infof("DID data is %v", did)
+						if err != nil {
+							log.Errorf("Problem getting voice DID %v", err)
+							result.Result = "Could not get DID " + voicesvc.Username + " from telephone API"
+						} else if did.UserData == nil {
+							result.Result = "Missing user data for DID " + voicesvc.Username
+						} else {
+							err = CreatePhoneService(subscriber+"-"+voicesvc.Username, subscriber+"-ONT", subscriber, profile, CP, voicevlan, did.Number, did.UserData.SIPPassword, int(voicesvc.Line))
+							if err != nil {
+								result.Result = "Problem adding voice service " + err.Error()
+							} else {
+								result.Result = "Added DID " + voicesvc.Username + " to FXS port " + strconv.Itoa(int(voicesvc.Line))
+								result.Success = true
+							}
+						}
+						kafka.SubmitResult(result)
+					}
 				}
 			}
 		}
