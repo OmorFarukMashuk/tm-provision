@@ -468,7 +468,7 @@ func ReflowDevice(token string, devices []string, jobname string) error {
 	log.Infof("Transaction id was %v", mcpresult.Output.TransID)
 	transresult, err = MCPGetTransaction(token, mcpresult.Output.TransID)
 	log.Infof("Reflow result was %v", transresult)
-	if transresult.Status != "completed-ok" {
+	if transresult.Completion != "completed-ok" {
 		err = errors.New("Reflow failed - " + transresult.Status)
 	}
 	return err

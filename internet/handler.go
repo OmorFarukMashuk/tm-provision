@@ -312,7 +312,7 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 				kafka.SubmitResult(result)
 				return
 			} else {
-				result.Result = "Updated ONT object"
+				result.Result = "Updated ONT object and queued re-flow job"
 				result.Success = true
 				kafka.SubmitResult(result)
 			}
