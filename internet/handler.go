@@ -23,6 +23,10 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 	case "Update":
 		//		NewRequest(request)
 
+	case "Device Swap":
+		log.Info("Handling device swap request")
+		DeviceSwap(request)
+
 	case "DeviceReturn":
 
 	case "Cancel":
@@ -250,6 +254,69 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					}
 				}
 			}
+		}
+
+	} else {
+		log.Info("Not a fibre customer")
+	}
+	return
+}
+
+// Handle an ONT swap through update mechanisms and reflow job
+func DeviceSwap(request telmaxprovision.ProvisionRequest) {
+	result := telmaxprovision.ProvisionResult{
+		RequestID: request.RequestID,
+		Time:      time.Now(),
+	}
+
+	subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	if err != nil {
+		log.Errorf("Problem getting subscriber %v", err)
+		result.Result = err.Error()
+		kafka.SubmitResult(result)
+
+	}
+	if subscribe.NetworkType == "Fibre" {
+		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+		//		var site Site
+		//		var PON string
+
+		// Get the ONT information
+
+		var hasONT bool
+		var activeONT ONTData
+		for _, device := range request.Devices {
+			log.Infof("Device data is %v", device)
+			if device.DeviceType == "AccessTerminal" {
+				var definition telmax.DeviceDefinition
+				definition, err = telmax.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
+				log.Infof("Device definition is %v", definition)
+				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
+					log.Infof("Found ONT")
+					activeONT.Definition = definition
+					activeONT.Device, err = telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					hasONT = true
+				}
+
+			}
+		}
+		// Update ONT record
+		if hasONT {
+			//			var ONU int
+			//			var CP string
+
+			// Update the ONT record in MCP
+			err = UpdateONT(subscriber, activeONT)
+			if err != nil {
+				result.Result = err.Error()
+				kafka.SubmitResult(result)
+				return
+			} else {
+				result.Result = "Updated ONT object"
+				result.Success = true
+				kafka.SubmitResult(result)
+			}
+
 		}
 
 	} else {

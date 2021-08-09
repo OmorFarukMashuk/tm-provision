@@ -124,8 +124,12 @@ func MCPRequest(authtoken string, command string, data interface{}) (mcpresponse
 		log.Errorf("Problem Reading HTTP Response %v", err)
 		return
 	} else {
-		json.Unmarshal(result, &mcpresponse)
+		err = json.Unmarshal(result, &mcpresponse)
+		if err != nil {
+			log.Errorf("Problem unmarshalling MCP response %v", err)
+		}
 	}
+	mcpresponse.Output.FixTime()
 	if mcpresponse.Errors.Message != "" {
 		err = errors.New(mcpresponse.Errors.Message)
 		log.Errorf("MCP error %v", mcpresponse)
@@ -159,6 +163,18 @@ func MCPQuery(authtoken string, query string) (result []byte, err error) {
 	defer response.Body.Close()
 	result, err = ioutil.ReadAll(response.Body)
 	log.Debugf("MCP response raw was %v", string(result))
+	return
+}
+
+func MCPGetTransaction(token string, id string) (transaction MCPTransResult, err error) {
+	query := "adtran-cloud-platform-uiworkflow:transitions/transition=" + id
+	var result []byte
+	result, err = MCPQuery(token, query)
+	if err != nil {
+		log.Errorf("Problem getting transaction %v - %v", id, err)
+		return
+	}
+	err = json.Unmarshal(result, &transaction)
 	return
 }
 
@@ -257,6 +273,60 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	}
 	return err
 
+}
+
+// Modify ONT Parameters
+func UpdateONT(subscriber string, ONT ONTData) error {
+	token, err := MCPAuth()
+	if err != nil {
+		log.Errorf("Could not authenticate to MCP %v", err)
+		return err
+	}
+
+	if err != nil {
+		log.Infof("Problem authenticating to MCP %v", err)
+		return err
+	}
+	var device MCPDevice
+	device.DeviceContext.DeviceName = subscriber + "-ONT"
+
+	/* Not sure if we need this
+	var deviceInfo MCPDeviceInfo
+	deviceInfo, err = GetDevice(token, device.DeviceContext.DeviceName)
+	if deviceInfo.State == "deployed" {
+		log.Infof("Device already deployed!")
+		if ONT.Device.Serial != deviceInfo.Parameters.Serial {
+			log.Errorf("Device deployed with different serial!")
+			err = errors.New("Subscriber " + subscriber + " ONT already deployed with serial number " + deviceInfo.Parameters.Serial)
+		}
+		return err
+	}
+	log.Infof("Device info is %v", deviceInfo)
+	log.Errorf("Checked for existing device - error was %v", err)
+	*/
+	device.DeviceContext.ModelName = ONT.Definition.Model
+	device.DeviceContext.ProfileVector = "ONU Config Vector"
+	var emptystruct struct{}
+	device.DeviceContext.ManagementDomainContext.ManagementDomainExternal = emptystruct
+	var mcpresult MCPResult
+
+	device.DeviceContext.ObjectParameters.Serial = ONT.Device.Serial
+	//		device.DeviceContext.ObjectParameters.OnuID = ONU
+	//		device.DeviceContext.UpstreamInterface = PON
+	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:modify", device)
+	log.Infof("MCP result is %v", mcpresult)
+	time.Sleep(time.Second * 5)
+
+	if err != nil {
+		return err
+	}
+	log.Infof("MCP result is %v", mcpresult.Output.Status)
+	err = ReflowDevice(token, []string{device.DeviceContext.DeviceName}, "API Reflow ONT")
+	if err != nil {
+		log.Errorf("Problem with device reflow %v %v", mcpresult.Errors, err)
+	}
+
+	return err
 }
 
 func CreateDataService(name string, device string, subscriberid string, profile string, contentprovider string, vlan int, port int) error {
@@ -371,4 +441,35 @@ func GetService(token string, name string) (data MCPServiceInfo, err error) {
 		log.Errorf("Problem unmarshalling query result %v", err)
 	}
 	return
+}
+
+func ReflowDevice(token string, devices []string, jobname string) error {
+	query := "adtran-cloud-platform-uiworkflow:undeploy"
+	var data MCPJob
+	data.JobContext.JobName = jobname
+	log.Infof("Un-deploying %v job", jobname)
+	mcpresult, err := MCPRequest(token, query, data)
+	if err != nil {
+		log.Errorf("Problem un-deploying reflow job %v", err)
+	}
+	log.Infof("MCP result is %v", mcpresult)
+	time.Sleep(time.Second * 3)
+	log.Infof("Deploying Re-flow job %v with devices %v", jobname, devices)
+	query = "adtran-cloud-platform-uiworkflow:deploy"
+	data.PopulateDevice(devices)
+	mcpresult, err = MCPRequest(token, query, data)
+	if err != nil {
+		log.Errorf("Problem deploying reflow job %v", err)
+		return err
+	}
+	log.Infof("MCP result from reflow was %v", mcpresult)
+	time.Sleep(time.Second * 5)
+	var transresult MCPTransResult
+	log.Infof("Transaction id was %v", mcpresult.Output.TransID)
+	transresult, err = MCPGetTransaction(token, mcpresult.Output.TransID)
+	log.Infof("Reflow result was %v", transresult)
+	if transresult.Status != "completed-ok" {
+		err = errors.New("Reflow failed - " + transresult.Status)
+	}
+	return err
 }

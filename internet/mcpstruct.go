@@ -86,11 +86,17 @@ type MCPResult struct {
 }
 
 type MCPTransResult struct {
-	DeviceName string    `json:"device-name"`
-	TimeStamp  time.Time `json:"timestamp"`
-	Status     string    `json:"status"`
-	TransID    string    `json:"trans-id"`
-	Completion string    `json:"completion-status"`
+	DeviceName string `json:"device-name,omitempty"`
+	JobName    string `json:"job-name,omitempty"`
+	RawTime    string `json:"timestamp"`
+	TimeStamp  time.Time
+	Status     string `json:"status"`
+	TransID    string `json:"trans-id"`
+	Completion string `json:"completion-status"`
+}
+
+func (transresult *MCPTransResult) FixTime() {
+	transresult.TimeStamp, _ = time.Parse(transresult.RawTime, "2006-01-02T15:04:05.000000")
 }
 
 type MCPDeviceInfo struct {
@@ -155,4 +161,55 @@ type MCPServiceInfo struct {
 			InterfaceID    string      `json:"interface-id"`
 		} `json:"interface-endpoint"`
 	} `json:"downlink-endpoint,omitempty"`
+}
+
+// MCP job object for orchestration jobs
+type MCPJob struct {
+	JobContext struct {
+		JobName        string              `json:"job-name"`
+		Action         string              `json:"action,omitempty"`
+		Trigger        string              `json:"trigger,omitempty"`
+		ActionContext  []JobActionContext  `json:"action-context,omitempty"`
+		TriggerContext []JobTriggerContext `json:"trigger-context"`
+	} `json:"job-context"`
+}
+
+type JobActionContext struct {
+	Name       string          `json:"name"`
+	Type       string          `json:"type"`
+	Hint       string          `json:"hint,omitempty"`
+	FilterList []JobFilterList `json:"filter-list"`
+	ValueList  []string        `json:"value-list"`
+}
+
+type JobFilterList struct {
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	Hint      string   `json:"hint,omitempty"`
+	ValueList []string `json:"value-list"`
+}
+
+type JobTriggerContext struct {
+}
+
+// Pre-populate job for activation
+func (job *MCPJob) PopulateDevice(device []string) {
+	job.JobContext.ActionContext = []JobActionContext{
+		JobActionContext{
+			Name: "Filter Criteria",
+			Type: "device",
+			FilterList: []JobFilterList{
+				JobFilterList{
+					Name:      "By Name",
+					Type:      "device",
+					Hint:      "The name of the ONT",
+					ValueList: device,
+				},
+			},
+			ValueList: device,
+		},
+	}
+	job.JobContext.TriggerContext = make([]JobTriggerContext, 0)
+	//		JobTriggerContext{},
+	//	}
 }
