@@ -444,17 +444,47 @@ func GetService(token string, name string) (data MCPServiceInfo, err error) {
 }
 
 func ReflowDevice(token string, devices []string, jobname string) error {
-	query := "adtran-cloud-platform-uiworkflow:undeploy"
+	var query string
 	var data MCPJob
+	var mcpresult MCPResult
+	var err error
+	var transresult MCPTransResult
 	data.JobContext.JobName = jobname
-	log.Infof("Un-deploying %v job", jobname)
-	mcpresult, err := MCPRequest(token, query, data)
+
+	var jobdata struct {
+		JobContext struct {
+			JobName string `json:"job-name"`
+		} `json:"job-context"`
+	}
+
+	var rundata struct {
+		JobName string `json:"job-name"`
+	}
+
+	jobdata.JobContext.JobName = jobname
+	rundata.JobName = jobname
+	/*
+		log.Infof("Deactivating %v job", jobname)
+		query = "adtran-cloud-platform-uiworkflow:deactivate"
+		mcpresult, err = MCPRequest(token, query, jobdata)
+		if err != nil {
+			log.Errorf("Problem deactivating old reflow job %v", err)
+			//		return err
+		}
+		log.Infof("MCP result is %v", mcpresult)
+		time.Sleep(time.Second * 5)
+	*/
+	log.Infof("Undeploying %v job", jobname)
+	query = "adtran-cloud-platform-uiworkflow:undeploy"
+	mcpresult, err = MCPRequest(token, query, data)
 	if err != nil {
 		log.Errorf("Problem un-deploying reflow job %v", err)
+		//		return err
 	}
 	log.Infof("MCP result is %v", mcpresult)
 	time.Sleep(time.Second * 3)
-	log.Infof("Deploying Re-flow job %v with devices %v", jobname, devices)
+
+	log.Infof("Re-deploying Re-flow job %v with devices %v", jobname, devices)
 	query = "adtran-cloud-platform-uiworkflow:deploy"
 	data.PopulateDevice(devices)
 	mcpresult, err = MCPRequest(token, query, data)
@@ -462,14 +492,44 @@ func ReflowDevice(token string, devices []string, jobname string) error {
 		log.Errorf("Problem deploying reflow job %v", err)
 		return err
 	}
-	log.Infof("MCP result from reflow was %v", mcpresult)
-	time.Sleep(time.Second * 5)
-	var transresult MCPTransResult
+	log.Infof("MCP result from job deploy was %v", mcpresult)
+	time.Sleep(time.Second * 3)
+
 	log.Infof("Transaction id was %v", mcpresult.Output.TransID)
 	transresult, err = MCPGetTransaction(token, mcpresult.Output.TransID)
 	log.Infof("Reflow result was %v", transresult)
 	if transresult.Completion != "completed-ok" {
 		err = errors.New("Reflow failed - " + transresult.Status)
+		return err
 	}
+	/*
+		query = "adtran-cloud-platform-uiworkflow:activate"
+		mcpresult, err = MCPRequest(token, query, data)
+		time.Sleep(time.Second * 5)
+
+		log.Infof("Transaction id was %v", mcpresult.Output.TransID)
+		transresult, err = MCPGetTransaction(token, mcpresult.Output.TransID)
+		log.Infof("Reflow run result was %v", transresult)
+		if transresult.Completion != "completed-ok" {
+			err = errors.New("Reflow failed - " + transresult.Status)
+		}
+	*/
+	query = "adtran-cloud-platform-uiworkflow-jobs:run-job-now"
+	mcpresult, err = MCPRequest(token, query, rundata)
+	if err != nil {
+		log.Errorf("Problem running reflow job %v", err)
+		return err
+	}
+	/*
+		time.Sleep(time.Second * 10)
+
+		log.Infof("Transaction id was %v", mcpresult.Output.TransID)
+		transresult, err = MCPGetTransaction(token, mcpresult.Output.TransID)
+		log.Infof("Reflow result was %v", transresult)
+		if transresult.Completion != "completed-ok" {
+			err = errors.New("Reflow failed - " + transresult.Status)
+			return err
+		}
+	*/
 	return err
 }
