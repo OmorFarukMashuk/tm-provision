@@ -61,6 +61,11 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				return
 			}
 			log.Infof("Site data is %v", site)
+			if len(site.CircuitData) < 1 {
+				result.Result = "This site does not have valid circuit data!"
+				kafka.SubmitResult(result)
+				return
+			}
 			PON = site.CircuitData[0].PON
 
 			//		if subscribe.Wirecentre == "" {
