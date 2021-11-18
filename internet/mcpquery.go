@@ -15,8 +15,8 @@ import (
 
 var (
 	MCPURL      = flag.String("mcpurl", "https://mcp01.dc1.osh.telmax.ca/api/restconf/", "URL and prefix for MCP Interaction")
-	MCPUsername = flag.String("mcpusername", "tim", "MCP Username")
-	MCPPassword = flag.String("mcppassword", "N3wjob!", "MCP Password")
+	MCPUsername = flag.String("mcpusername", "provision", "MCP Username")
+	MCPPassword = flag.String("mcppassword", "Pr0vision", "MCP Password")
 )
 
 func MCPAuth() (token string, err error) {
@@ -220,7 +220,8 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		device.DeviceContext.UpstreamInterface = PON
 		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", device)
 		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 5)
+		// Give MCP some time to complete the request
+		time.Sleep(time.Second * 15)
 
 		if err != nil {
 			return err
@@ -230,7 +231,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	} else {
 		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:create", device)
 		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 15)
 
 		if err != nil {
 			log.Errorf("Problem creating ONT %v", err)
@@ -247,7 +248,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		iface.InterfaceContext.ProfileVector = "ONU Eth UNI Profile Vector"
 		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
 		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 4)
 
 		/*
 			time.Sleep(time.Second * 5)
@@ -269,7 +270,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		iface.InterfaceContext.ProfileVector = "FXS Interface Profile Vector"
 		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
 		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 5)
 	}
 	return err
 
@@ -331,8 +332,8 @@ func UpdateONT(subscriber string, ONT ONTData) error {
 
 func CreateDataService(name string, device string, subscriberid string, profile string, contentprovider string, vlan int, port int) error {
 	if contentprovider == "" || vlan == 0 || profile == "" {
-		log.Errorf("This service is not properly configured %v", name)
-		err := errors.New("Service is missing vlan or CP")
+		log.Errorf("This service is not properly configured %v - profile %v, cp %v, vlan %v", name, profile, contentprovider, vlan)
+		err := errors.New("Service is missing vlan, CP, or profile")
 		return err
 	}
 	token, err := MCPAuth()
@@ -364,6 +365,7 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	if err != nil {
 		return err
 	}
+	time.Sleep(time.Second * 5)
 	return err
 }
 
@@ -410,6 +412,7 @@ func CreatePhoneService(name string, device string, subscriberid string, profile
 	if err != nil {
 		return err
 	}
+	time.Sleep(time.Second * 5)
 	return err
 }
 
