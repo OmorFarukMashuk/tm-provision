@@ -58,8 +58,9 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	var devices []string
 	var subscriberID int
 	for _, device := range request.Devices {
-		if device.DeviceType == "RG" {
+		if device.DeviceType == "RG" && device.Mac != "" && (device.DefinitionCode == "DEVIDEFI008" || device.DefinitionCode == "DEVIDEFI013" || device.DefinitionCode == "DEVIDEFI0034") {
 			hasRG = true
+			log.Infof("Found RG device %v", device.Mac)
 			devices = append(devices, device.Mac)
 		}
 	}

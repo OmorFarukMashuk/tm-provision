@@ -30,7 +30,7 @@ var (
 	TZLocation *time.Location
 	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
 	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
-	KafkaGroup = flag.String("kafka.group", "internet", "Kafka group id")                                              // Change this to your provision subsystem name
+	KafkaGroup = flag.String("kafka.group", "rg", "Kafka group id")                                                    // Change this to your provision subsystem name
 
 	MongoURI       = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
 	CoreDatabase   = flag.String("coredatabase", "telmaxmb", "Core Database name")
