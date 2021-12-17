@@ -31,6 +31,7 @@ type ProvisionDevice struct {
 	DefinitionCode string // The definition code that defines the device attributes
 	DeviceType     string // The type of device from the Definition Code
 	Mac            string // The MAC address of the device - normalize to letters and uppercase
+	Serial string // The Serial number for the device 
 }
 
 type ProvisionResult struct {
