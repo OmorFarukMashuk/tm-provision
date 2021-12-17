@@ -1,0 +1,94 @@
+/*
+{
+"_id" : ObjectId("61574156a288e581e003f365"),
+"model" : "Eero Pro 6",
+"vendor" : "Amazon",
+"upstream" : "Ethernet",
+"management_tr069" : false,
+"management_http" : false,
+"management_ssh" : false,
+"management_xml" : false,
+"management_omci" : false,
+"wifi_type" : "802.11ac",
+"wifi_2g" : true,
+"wifi_5g" : true,
+"default_password" : "",
+"default_user" : "",
+"device_type" : "RG",
+"ethernet_ports" : 1,
+"pots_ports" : 0,
+"regular_price" : 0,
+"discount_price" : 0,
+"discount_months" : 0,
+"discount_bool" : false,
+"note" : "",
+"devicedefinition_code" : "DEVIDEFI0010038",
+"created_date" : ISODate("2021-10-01T17:11:50.938Z"),
+"device_count" : 171,
+"devicedefinition_status" : true
+}
+
+
+
+// 4
+{
+	"_id" : ObjectId("615741efa288e581e003f366"),
+	"model" : "Eero 6",
+	"vendor" : "Amazon",
+	"upstream" : "Ethernet",
+	"management_tr069" : false,
+	"management_http" : false,
+	"management_ssh" : false,
+	"management_xml" : false,
+	"management_omci" : false,
+	"wifi_type" : "802.11ac",
+	"wifi_2g" : true,
+	"wifi_5g" : true,
+	"default_password" : "",
+	"default_user" : "",
+	"device_type" : "RG",
+	"ethernet_ports" : 1,
+	"pots_ports" : 0,
+	"regular_price" : 0,
+	"discount_price" : 0,
+	"discount_months" : 0,
+	"discount_bool" : false,
+	"note" : "",
+	"devicedefinition_code" : "DEVIDEFI0010039",
+	"created_date" : ISODate("2021-10-01T17:14:23.486Z"),
+	"device_count" : 56,
+	"devicedefinition_status" : true
+	}
+
+
+
+// 5
+	{
+	"_id" : ObjectId("6160b256415aaddc569c053d"),
+	"model" : "Eero 6 Extender",
+	"vendor" : "Amazon",
+	"upstream" : "",
+	"management_tr069" : false,
+	"management_http" : false,
+	"management_ssh" : false,
+	"management_xml" : false,
+	"management_omci" : false,
+	"wifi_type" : "802.11ac",
+	"wifi_2g" : true,
+	"wifi_5g" : true,
+	"default_password" : "",
+	"default_user" : "",
+	"device_type" : "RG",
+	"ethernet_ports" : 1,
+	"pots_ports" : 0,
+	"regular_price" : 0,
+	"discount_price" : 0,
+	"discount_months" : 0,
+	"discount_bool" : false,
+	"note" : "",
+	"devicedefinition_code" : "DEVIDEFI0010040",
+	"created_date" : ISODate("2021-10-08T21:04:22.164Z"),
+	"device_count" : 14,
+	"devicedefinition_status" : true
+	}
+*/

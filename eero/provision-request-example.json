@@ -1,0 +1,38 @@
+{
+  "RequestID": "9a2d0405-fa6b-440d-b899-f602d30372aa",
+  "AccountCode": "ACCT11629",
+  "AccountName": "Scott Babin",
+  "SubscribeCode": "SUBS001",
+  "SiteID": "193682",
+  "SubscribeName": "SUBS001",
+  "RequestType": "New",
+  "RequestTicket": "TCKT05577",
+  "RequestUser": "npenney",
+  "Products": [
+    {
+      "SubProductCode": "SUBPROD15151",
+      "ProductCode": "PROD006",
+      "Category": "Internet"
+    }
+  ],
+  "Devices": [
+    {
+      "DeviceCode": "BNDEVI013305",
+      "DefinitionCode": "DEVIDEFI0010038",
+      "DeviceType": "RG",
+      "Mac": "20BECD2CC2A0"
+    },
+    {
+      "DeviceCode": "BNDEVI013298",
+      "DefinitionCode": "DEVIDEFI0010038",
+      "DeviceType": "RG",
+      "Mac": "20BECD2E9FC0"
+    },
+    {
+      "DeviceCode": "BNDEVI013299",
+      "DefinitionCode": "DEVIDEFI0010038",
+      "DeviceType": "RG",
+      "Mac": "20BECD297700"
+    }
+  ]
+}
