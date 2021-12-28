@@ -1,11 +1,13 @@
 package kafka
 
 import (
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
 	//"flag"
 	"encoding/json"
+
 	"github.com/Shopify/sarama"
 	"github.com/google/uuid"
+
 	//cluster "github.com/bsm/sarama-cluster"
 	log "github.com/sirupsen/logrus"
 	//"go.mongodb.org/mongo-driver/bson"
@@ -87,7 +89,7 @@ func SubmitException(result telmaxprovision.ProvisionException) error {
 
 func NewProducer(brokers []string) sarama.SyncProducer {
 	config := sarama.NewConfig()
-	log.Info("brokers list is %v", brokers)
+	log.Infof("Brokers list is %v", brokers)
 	config.Producer.Retry.Max = 10 // Retry up to 10 times to produce the message
 	config.Producer.Return.Successes = true
 	/*
