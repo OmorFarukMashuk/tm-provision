@@ -21,6 +21,8 @@ var eeroApi = &eero.EeroApi{
 	Key:     "15974148|12d467oiahrvacdvfv1f4jl2gs", // bound to eero@telmax.com, use CLI to generate new key if needed.
 }
 
+var sleepTimer = time.Duration(60)
+
 func HandleProvision(request telmaxprovision.ProvisionRequest) {
 
 	switch request.RequestType {
@@ -54,11 +56,11 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 	var (
 		isEero        bool
 		hasNet        bool
-		deviceSns     []string // using device codes instead of Mac addresses
-		deviceSnsCopy []string
-		homeID        string // home identifier or network "label", concat of AcctCode + SubscribeCode
-		subscribe     telmax.Subscribe
-		device        telmax.Device
+		deviceSns     []string         // using device codes instead of Mac addresses
+		deviceSnsCopy []string         // original may be modified, use copy for final iterative check
+		homeID        string           // home identifier or network "label", concat of AcctCode + SubscribeCode
+		subscribe     telmax.Subscribe // a database object
+		device        telmax.Device    // a database object
 		net           *eero.Network
 		dev           *eero.Eero
 		err           error
@@ -155,8 +157,17 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 					}
 				}
 			}
-			log.Infof("Retrieved valid Network (ID %d) from Subscribe record. Removed [%d] Eeros from provision request as they already were provisioned", subscribe.ACSSubscriber, tmpLenDeviceSns-len(deviceSns))
-			result.Result = fmt.Sprintf("Retrieved valid Network (ID %d) from Subscribe record. Removed [%d] Eeros from provision request as they already were provisioned", subscribe.ACSSubscriber, tmpLenDeviceSns-len(deviceSns))
+			if len(deviceSns) == 0 {
+				// devices already exist on correct network. Return!
+				log.Infof("Subscribe database entry contained valid Network (ID %d) which all provision request Eeros already belong to.", subscribe.ACSSubscriber)
+				result.Result = fmt.Sprintf("Subscribe database entry contained valid Network (ID %d) which all provision request Eeros already belong to.", subscribe.ACSSubscriber)
+				result.Success = true
+				result.Time = time.Now()
+				kafka.SubmitResult(result)
+				return
+			}
+			log.Infof("Subscribe database entry contained valid Network (ID %d) which [%d] provision request Eeros already belong to", subscribe.ACSSubscriber, tmpLenDeviceSns-len(deviceSns))
+			result.Result = fmt.Sprintf("Subscribe database entry contained valid Network (ID %d) which [%d] provision request Eeros already belong to", subscribe.ACSSubscriber, tmpLenDeviceSns-len(deviceSns))
 			result.Success = true
 			result.Time = time.Now()
 			kafka.SubmitResult(result)
@@ -164,8 +175,11 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 			result.Result = ""
 			// All network validation and DB sync done at the end
 		} else {
-			// network exists but no Eeros attached
-			log.Infof("Retrieved valid Network (ID %d) from Subscribe record", subscribe.ACSSubscriber)
+			// network exists but no Eeros attached.
+			// Only possible if network had eeros provisioned but they were removed and the network wasn't deleted.
+			// if the API call resolves, this network should be able to be used!
+			hasNet = true
+			log.Infof("Retrieved valid Network (ID %d) from Subscribe record.", subscribe.ACSSubscriber)
 			result.Result = fmt.Sprintf("Retrieved valid Network (ID %d) from Subscribe record", subscribe.ACSSubscriber)
 			result.Success = true
 			result.Time = time.Now()
@@ -209,6 +223,15 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 		kafka.SubmitResult(result)
 		result.Success = false
 		result.Result = ""
+
+		// another update at the end, but this stores any changes made by creating the new network
+		err = subscribe.Update(CoreDB)
+		if err != nil {
+			log.Errorf("Problem Updating Database (Subscribe) after New/Update provision request - %v", err)
+			result.Result = fmt.Sprintf("Problem Updating Database (Subscribe) after New/Update provision request - %v", err)
+			kafka.SubmitResult(result)
+			result.Result = ""
+		}
 	}
 
 	// Device section: if one or more devices is an Eero that doesn't already belong to the prescribed network
@@ -219,12 +242,14 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 		devSearch, err := eeroApi.GetEeroBySn(sn)
 		if err == nil {
 			// if the device is already assigned to a network
-			if devSearch.Network.Url != "" {
+			if devSearch.Network.Url == "" {
+				log.Infof("Eero (SN %s) does not have a Network configured. Assigning now...", sn)
+			} else {
 				// if the network is configured for the desired value already (check above failed!)
 				tmpNetId := eero.LastUrlSegmentInt(devSearch.Network.Url)
 				if tmpNetId == subscribe.ACSSubscriber {
-					log.Infof("Eero (SN %s) is already configured for Network (ID %d)", sn, subscribe.ACSSubscriber)
-					result.Result = fmt.Sprintf("Eero (SN %s) is already configured for Network (ID %d)", sn, subscribe.ACSSubscriber)
+					log.Infof("Eero (SN %s) is already configured for the desired Network (ID %d)", sn, subscribe.ACSSubscriber)
+					result.Result = fmt.Sprintf("Eero (SN %s) is already configured for teh desired Network (ID %d)", sn, subscribe.ACSSubscriber)
 					result.Success = true
 					result.Time = time.Now()
 					kafka.SubmitResult(result)
@@ -233,7 +258,7 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 					continue
 				} else {
 					// device has network but not proper one
-					log.Infof("Eero (SN %s) is configured for the wrong network (ID %d) - overwriting", sn, tmpNetId)
+					log.Infof("Eero (SN %s) is configured for the wrong Network (ID %d) - overwriting", sn, tmpNetId)
 					// Can't patch over, must remove Eero and readd!
 					err = eeroApi.DeleteEeroBySn(sn)
 					if err != nil {
@@ -243,10 +268,10 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 						result.Result = ""
 						continue
 					} else {
-						log.Infof("Eero (SN %s) deleted so it can be configured for correct network", sn)
+						log.Infof("Eero (SN %s) deleted from existing Network (ID %d) so it can be configured for correct network", sn, tmpNetId)
 					}
 				}
-			} // else, we're going to give it one, proceed
+			}
 		} else {
 			// devSearch had an error. Must exit, this call works for all devices we own, used by inventory
 			log.Errorf("Eero (SN %s) cannot be found! - %v", sn, err)
@@ -257,7 +282,7 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 		}
 
 		// each Eero must be "Posted" to the API, even though it is already known to the API (as shown with GetbySn)
-		dev, err = eeroApi.PostNewEero(sn, "", "")
+		dev, err = eeroApi.PostNewEero(sn)
 		if err != nil {
 			// most obvious error is already handled: if it already belong to a network
 			// abort this device provision
@@ -272,14 +297,15 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 
 		// location is passed as "" because it doesn't matter and we can't know in pre-provision
 		// object is disregarded as it is a third representation of the Eero that does not add any value
-		_, err = eeroApi.UpdateEero(sn, fmt.Sprintf("/2.2/networks/%d", subscribe.ACSSubscriber), "", snid)
+		_, err = eeroApi.UpdateEero(sn, "", subscribe.ACSSubscriber, snid)
 		if err != nil {
 			log.Errorf("Problem assigning Eero (SN %s) (SNID %d) to Network (NetID %d) - %v", sn, snid, subscribe.ACSSubscriber, err)
 			result.Result = fmt.Sprintf("Problem assigning Eero (SN %s) (SNID %d) to Network (NetID %d) - %v", sn, snid, subscribe.ACSSubscriber, err)
 			kafka.SubmitResult(result)
 			continue
 		}
-		result.Result = fmt.Sprintf("Eero (SN %s) (SNID %d) assigned to Network (NetID %d)", sn, snid, subscribe.ACSSubscriber)
+		log.Infof("Successfully added Eero (SN %s) (SNID %d) to Network (ID %d)", sn, snid, subscribe.ACSSubscriber)
+		result.Result = fmt.Sprintf("Successfully added Eero (SN %s) (SNID %d) to Network (ID %d)", sn, snid, subscribe.ACSSubscriber)
 		result.Success = true
 		result.Time = time.Now()
 		kafka.SubmitResult(result)
@@ -305,37 +331,37 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 		device.Location = subscribe.Address.Street // bson:address
 		device.Status = "Activate"
 
-		log.Infof("Successfully added Eero (SN %s) (SNID %s) to Network (ID %d)", sn, snid, subscribe.ACSSubscriber)
-		result.Result = fmt.Sprintf("Successfully added Eero (SN %s) (SNID %s) to Network (ID %d)", sn, snid, subscribe.ACSSubscriber)
-		result.Success = true
-		result.Time = time.Now()
-		kafka.SubmitResult(result)
-		result.Success = false
-		result.Result = ""
-
 		// update the device record with new info
 		err = device.Update(CoreDB)
 		if err != nil {
-			log.Errorf("Problem updating Device record for Eero (SN %s) - %v", sn, err)
-			result.Result = fmt.Sprintf("Problem updating Device record for Eero (SN %s) - %v", sn, err)
+			log.Errorf("Problem updating Database for Eero (SN %s) - %v", sn, err)
+			result.Result = fmt.Sprintf("Problem updating Database for Eero (SN %s) - %v", sn, err)
 			kafka.SubmitResult(result)
 			result.Result = ""
 		}
 	}
 
+	// some condition causes this call to fail sometimes if done immediately after the updates...?
+	// test devices were plugged during the time of provision... does this make a difference?
+	log.Infof("All [%d] devices should now be provisioned. Sleeping %d seconds then checking to make sure!", len(deviceSnsCopy), sleepTimer)
+	time.Sleep(sleepTimer * time.Second)
 	// keep it simple, check the network, check the Eeros.
 	net, err = eeroApi.GetNetworkById(subscribe.ACSSubscriber)
 	if err != nil {
-		log.Errorf("Error getting newly created network (ID %d) after provision! - %v", subscribe.ACSSubscriber, err)
+		log.Errorf("Error validating Network (ID %d) - %v", subscribe.ACSSubscriber, err)
+		result.Result = fmt.Sprintf("Error validating Network (ID %d) - %v", subscribe.ACSSubscriber, err)
+		kafka.SubmitResult(result)
+		result.Result = ""
+		// WHY!
 	} else {
 		if subscribe.LanSSID != net.Name {
 			// prefer this method since subscribe's SSID is most likely auto-generated
 			// if the on-site is different, it may have been changed by preference
 			// unlikely that the network will exist already but be incorrect
 			// Net object does not reveal PSK, can only "PUT" it.
+			log.Warnf("Database updated to reflect on-site SSID (%s) instead of pre-provisioned value (%s)", net.Name, subscribe.LanSSID)
+			result.Result = fmt.Sprintf("Database updated to reflect on-site SSID (%s) instead of pre-provisioned value (%s)", net.Name, subscribe.LanSSID)
 			subscribe.LanSSID = net.Name
-			log.Warnf("Databse updated to reflect on-site SSID (%s) instead of pre-provisioned value (%s)", net.Name, subscribe.LanSSID)
-			result.Result = fmt.Sprintf("Databse updated to reflect on-site SSID (%s) instead of pre-provisioned value (%s)", net.Name, subscribe.LanSSID)
 			result.Success = true
 			result.Time = time.Now()
 			kafka.SubmitResult(result)
@@ -362,50 +388,86 @@ func NewEero(request telmaxprovision.ProvisionRequest) {
 	}
 	netEeroRsp, err := eeroApi.GetNetworkEeros(subscribe.ACSSubscriber)
 	if err != nil {
-		log.Errorf("Error getting newly Network Eero List (ID %d) after provision! - %v", subscribe.ACSSubscriber, err)
-	}
-	for i := 0; i < len(netEeroRsp.Data); i++ {
-		for n := 0; n < len(deviceSnsCopy); n++ {
-			if netEeroRsp.Data[i].Serial == deviceSnsCopy[n] {
-				// prevent panic if pop-off is last entry
-				if len(deviceSnsCopy) == 1 {
-					deviceSns = []string{}
-				} else {
-					// pop
-					// copy last entry to current entry
-					deviceSnsCopy[n] = deviceSnsCopy[len(deviceSnsCopy)-1]
-					// shorten list by removing duplicated last entry
-					deviceSnsCopy = deviceSnsCopy[:len(deviceSnsCopy)-1]
+		log.Errorf("Error validating Network Eero List (ID %d) - %v", subscribe.ACSSubscriber, err)
+		result.Result = fmt.Sprintf("Error validating Network Eero List (ID %d) - %v", subscribe.ACSSubscriber, err)
+		kafka.SubmitResult(result)
+		result.Result = ""
+		// WHY!
+	} else {
+		for i := 0; i < len(netEeroRsp.Data); i++ {
+			// copy has not been modified, represents all originally identified eero provision requests
+			for n := 0; n < len(deviceSnsCopy); n++ {
+				if netEeroRsp.Data[i].Serial == deviceSnsCopy[n] {
+					// prevent panic if pop-off is last entry
+					if len(deviceSnsCopy) == 1 {
+						deviceSns = []string{}
+					} else {
+						// pop
+						// copy last entry to current entry
+						deviceSnsCopy[n] = deviceSnsCopy[len(deviceSnsCopy)-1]
+						// shorten list by removing duplicated last entry
+						deviceSnsCopy = deviceSnsCopy[:len(deviceSnsCopy)-1]
+					}
 				}
 			}
 		}
 	}
+	// expecting/hoping that all devices were popped off
 	if len(deviceSnsCopy) != 0 {
-		log.Errorf("New network (ID %d) does not contain one or more requested Eeros! Re-asserting", subscribe.ACSSubscriber)
+		log.Errorf("New network (ID %d) does not contain [%d] of the provisioned Eeros!", subscribe.ACSSubscriber, len(deviceSnsCopy))
 		for _, sn := range deviceSnsCopy {
-			err = eeroApi.DeleteEeroBySn(sn)
+			devSearch, err := eeroApi.GetEeroBySn(sn)
 			if err == nil {
-				dev, err = eeroApi.PostNewEero(sn, "", "")
-				if err == nil {
-					snid, err := eeroApi.ResolveSnToId(sn)
+				tmp := eero.LastUrlSegmentInt(devSearch.Network.Url)
+				if tmp == subscribe.ACSSubscriber {
+					log.Infof("After sleeping before assertion the Eero (SN %s) now belongs to Network (ID %d)", sn, subscribe.ACSSubscriber)
+				} else {
+					log.Infof("Beginning assertion effort for Eero (SN %s)", sn)
+					count := 0 // for debugging where the error occurs
+					err = eeroApi.DeleteEeroBySn(sn)
 					if err == nil {
-						_, err = eeroApi.UpdateEero(sn, fmt.Sprintf("/2.2/networks/%d", subscribe.ACSSubscriber), "", snid)
+						count++
+						dev, err = eeroApi.PostNewEero(sn)
 						if err == nil {
-							devSearch, err := eeroApi.GetEeroBySn(sn)
+							count++
+							snid, err := eeroApi.ResolveSnToId(sn)
 							if err == nil {
-								if eero.LastUrlSegmentInt(devSearch.Network.Url) == subscribe.ACSSubscriber {
-									log.Infof("New network (ID %d) now contains Eero (SN %s)")
+								count++
+								_, err = eeroApi.UpdateEero(sn, "", subscribe.ACSSubscriber, snid)
+								if err == nil {
+									count++
+									devSearch, err := eeroApi.GetEeroBySn(sn)
+									if err == nil {
+										count++
+										if devSearch.Network.Url == "" {
+											log.Errorf("After assertion the Eero (SN %s) is showing no Network URL. This is a common bug, re-run the provision event.", sn)
+											result.Result = fmt.Sprintf("After assertion the Eero (SN %s) is showing no Network URL. This is a common bug, re-run the provision event.", sn)
+											kafka.SubmitResult(result)
+											result.Result = ""
+										} else {
+											tmp := eero.LastUrlSegmentInt(devSearch.Network.Url)
+											if tmp == subscribe.ACSSubscriber {
+												log.Infof("After assertion the Eero (SN %s) now belongs to Network (ID %d)", sn, subscribe.ACSSubscriber)
+											} else {
+												log.Errorf("After assertion the Eero (SN %s) is still not configured for desired Network (ID %d), instead Network (ID %d)", sn, subscribe.ACSSubscriber, tmp)
+												result.Result = fmt.Sprintf("After assertion the Eero (SN %s) is still not configured for desired Network (ID %d), instead Network (ID %d)", sn, subscribe.ACSSubscriber, tmp)
+												kafka.SubmitResult(result)
+												result.Result = ""
+											}
+										}
+										continue
+									}
 								}
 							}
 						}
 					}
+					log.Errorf("An error occurred [Debug=%d] attempting to assert Eero (SN %s) to Network (ID %d) - %v", count, sn, subscribe.ACSSubscriber, err)
 				}
 			}
-			log.Errorf("An error occurred attempting to assert Eero (SN %s) to Network (ID %d) - %v", sn, subscribe.ACSSubscriber, err)
 		}
 	}
 
-	// wait until the end to update!
+	// just to make sure any changes are reflect in the account.
 	err = subscribe.Update(CoreDB)
 	if err != nil {
 		log.Errorf("Problem Updating Database (Subscribe) after New/Update provision request - %v", err)
@@ -499,7 +561,7 @@ func EeroCancel(request telmaxprovision.ProvisionRequest) {
 	// keys in map will be unique networks
 	// prevents deleting the same network twice and deciding if that error is important
 	for url := range network {
-		err := eeroApi.DeleteNetwork(url)
+		err := eeroApi.DeleteNetwork(eero.LastUrlSegmentInt(url))
 		if err != nil {
 			log.Errorf("Problem deleting network (ID %d) - %v", eero.LastUrlSegmentInt(url), err)
 		} else {
