@@ -3,7 +3,9 @@ package main
 import (
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
-	"bitbucket.org/timstpierre/telmax-common"
+	//	"bitbucket.org/telmaxdc/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+
 	//"strings"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	"bitbucket.org/timstpierre/telmax-provision/structs"
@@ -39,7 +41,7 @@ func DeviceReturn(request telmaxprovision.ProvisionRequest) {
 	accountlist := map[string]accountSubscribe{}
 	for _, device := range request.Devices {
 		if device.DeviceType == "TVSetTopBox" {
-			deviceData, err := telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+			deviceData, err := devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 			if err != nil {
 				log.Errorf("Problem getting device details for code %v - %v", device.DeviceCode, err)
 			} else {
