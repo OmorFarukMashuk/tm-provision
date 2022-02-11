@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	//"fmt"
 	"errors"
+	"flag"
 	"github.com/davecgh/go-spew/spew"
 	_ "github.com/go-sql-driver/mysql"
 	log "github.com/sirupsen/logrus"
@@ -14,12 +15,13 @@ import (
 )
 
 var (
-	SQL *sql.DB
+	SQL     *sql.DB
+	SQLHost = flag.String("dhcpdb.host", "dhcp04.tor2.telmax.ca", "DHCP SQL hostname")
 )
 
 func SQLConnect() *sql.DB {
 	s := sqlServer{
-		Hostname: "dhcp01.lab.dc1.osh.telmax.ca",
+		Hostname: *SQLHost,
 		Username: "provisioning",
 		Password: "telMAXProv720",
 	}

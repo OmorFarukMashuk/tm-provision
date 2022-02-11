@@ -5,7 +5,9 @@ import (
 	//	"go.mongodb.org/mongo-driver/bson"
 
 	//"strings"
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
 	"bitbucket.org/timstpierre/telmax-provision/dhcpdb"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	"bitbucket.org/timstpierre/telmax-provision/netdb"
@@ -40,7 +42,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		Time:      time.Now(),
 	}
 
-	subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
 		log.Errorf("Problem getting subscriber %v", err)
 		result.Result = err.Error()
@@ -81,9 +83,9 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		var services []OLTService
 		log.Warn("Iterating through products to see which ones have a network profile")
 		for _, product := range request.Products {
-			var productData telmax.Product
+			var productData maxbill.Product
 			var servicedata OLTService
-			productData, err = telmax.GetProduct(CoreDB, "product_code", product.ProductCode)
+			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
 			if productData.NetworkProfile != nil {
 				profile := *productData.NetworkProfile
 				if profile.AddressPool != "" {
@@ -92,10 +94,10 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				}
 				servicedata.ProductData = productData
 				if product.SubProductCode != "" {
-					var subscribeservicearray []telmax.SubscribedProduct
+					var subscribeservicearray []maxbill.SubscribedProduct
 
 					log.Infof("Getting services - %v", product.SubProductCode)
-					subscribeservicearray, err = telmax.GetServices(CoreDB, []telmax.Filter{telmax.Filter{Key: "subprod_code", Value: product.SubProductCode}})
+					subscribeservicearray, err = maxbill.GetServices(CoreDB, []telmax.Filter{telmax.Filter{Key: "subprod_code", Value: product.SubProductCode}})
 					if err != nil {
 						log.Errorf("Problem getting subscribed product details %v", err)
 						result.Result = err.Error()
@@ -121,6 +123,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			var resulttext string
 			if err != nil {
 				resulttext = resulttext + "Problem assigning address " + err.Error() + "\n"
+				result.Success = false
 			} else {
 				resulttext = resulttext + "Assigned address from pool " + pool + " vlan " + strconv.Itoa(reservations[pool].VlanID) + "\n"
 				result.Success = true
@@ -136,13 +139,13 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		for _, device := range request.Devices {
 			log.Infof("Device data is %v", device)
 			if device.DeviceType == "AccessTerminal" {
-				var definition telmax.DeviceDefinition
-				definition, err = telmax.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
+				var definition devices.DeviceDefinition
+				definition, err = devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
 				log.Infof("Device definition is %v", definition)
 				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
 					log.Infof("Found ONT")
 					activeONT.Definition = definition
-					activeONT.Device, err = telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 					hasONT = true
 				}
 
@@ -185,14 +188,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				err = CreateONT(subscriber, activeONT, PON, ONU)
 				if err != nil {
 					result.Result = err.Error()
+					result.Success = false
 					kafka.SubmitResult(result)
+
 					return
 				} else {
-					result.Result = "Created ONT object"
+					result.Result = "Created ONT and interface objects"
 					result.Success = true
 					kafka.SubmitResult(result)
 				}
-
+				//				time.Sleep(30 * time.Second)
 				// Add services
 				for _, service := range services {
 					if service.ProductData.NetworkProfile.AddressPool != "" {
@@ -213,6 +218,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					if err != nil {
 						log.Errorf("Problem creating service %v - %v", service.Name, err)
 						result.Result = err.Error()
+						result.Success = false
 						kafka.SubmitResult(result)
 					} else {
 						result.Result = "Created service object " + service.Name
@@ -250,6 +256,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 							err = CreatePhoneService(subscriber+"-"+voicesvc.Username, subscriber+"-ONT", subscriber, profile, CP, voicevlan, did.Number, did.UserData.SIPPassword, int(voicesvc.Line))
 							if err != nil {
 								result.Result = "Problem adding voice service " + err.Error()
+								result.Success = false
 							} else {
 								result.Result = "Added DID " + voicesvc.Username + " to FXS port " + strconv.Itoa(int(voicesvc.Line))
 								result.Success = true
@@ -274,7 +281,7 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 		Time:      time.Now(),
 	}
 
-	subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
 		log.Errorf("Problem getting subscriber %v", err)
 		result.Result = err.Error()
@@ -293,13 +300,13 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 		for _, device := range request.Devices {
 			log.Infof("Device data is %v", device)
 			if device.DeviceType == "AccessTerminal" {
-				var definition telmax.DeviceDefinition
-				definition, err = telmax.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
+				var definition devices.DeviceDefinition
+				definition, err = devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
 				log.Infof("Device definition is %v", definition)
 				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
 					log.Infof("Found ONT")
 					activeONT.Definition = definition
-					activeONT.Device, err = telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 					hasONT = true
 				}
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
@@ -137,6 +138,35 @@ func MCPRequest(authtoken string, command string, data interface{}) (mcpresponse
 	return
 }
 
+func MCPRequestWait(authtoken string, command string, data interface{}) (mcpresponse MCPResult, err error) {
+	wait := 3
+	count := 20
+	mcpresponse, err = MCPRequest(authtoken, command, data)
+	if mcpresponse.Output.Completion == "in-progress" {
+		var counter int
+		var transaction MCPTransResult
+		for counter < count {
+			log.Infof("Waiting for MCP request to complete - pass %v", counter)
+			time.Sleep(time.Second * time.Duration(wait))
+			transaction, err = MCPGetTransaction(authtoken, mcpresponse.Output.TransID)
+			if err != nil {
+				return
+			}
+			if transaction.Completion != "in-progress" {
+
+				mcpresponse.Output = transaction
+				if transaction.Completion == "failure" {
+					err = errors.New(transaction.Error)
+				}
+				return
+			}
+			counter++
+		}
+		err = errors.New(fmt.Sprintf("Gave up on MCP request after %v seconds", wait*count))
+	}
+	return
+}
+
 func MCPQuery(authtoken string, query string) (result []byte, err error) {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -184,20 +214,12 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		log.Errorf("Could not authenticate to MCP %v", err)
 		return err
 	}
-	var activateNow bool
-	if PON != "" {
-		activateNow = true
-	}
-	if err != nil {
-		log.Infof("Problem authenticating to MCP %v", err)
-		return err
-	}
 	var device MCPDevice
 	device.DeviceContext.DeviceName = subscriber + "-ONT"
 
 	var deviceInfo MCPDeviceInfo
 	deviceInfo, err = GetDevice(token, device.DeviceContext.DeviceName)
-	if deviceInfo.State == "deployed" {
+	if deviceInfo.State == "deployed" || deviceInfo.State == "activated" {
 		log.Infof("Device already deployed!")
 		if ONT.Device.Serial != deviceInfo.Parameters.Serial {
 			log.Errorf("Device deployed with different serial!")
@@ -205,8 +227,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		}
 		return err
 	}
-	log.Infof("Device info is %v", deviceInfo)
-	log.Errorf("Checked for existing device - error was %v", err)
+	//	log.Errorf("Checked for existing device - error was %v", err)
 
 	device.DeviceContext.ModelName = ONT.Definition.Model
 	device.DeviceContext.ProfileVector = "ONU Config Vector"
@@ -214,30 +235,17 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	device.DeviceContext.ManagementDomainContext.ManagementDomainExternal = emptystruct
 	var mcpresult MCPResult
 
-	if activateNow {
-		device.DeviceContext.ObjectParameters.Serial = ONT.Device.Serial
-		device.DeviceContext.ObjectParameters.OnuID = ONU
-		device.DeviceContext.UpstreamInterface = PON
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", device)
-		log.Infof("MCP result is %v", mcpresult)
-		// Give MCP some time to complete the request
-		time.Sleep(time.Second * 15)
-
-		if err != nil {
-			return err
-		}
-		log.Infof("MCP result is %v", mcpresult.Output.Status)
-
-	} else {
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-uiworkflow:create", device)
-		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 15)
-
-		if err != nil {
-			log.Errorf("Problem creating ONT %v", err)
-			//		return err
-		}
+	device.DeviceContext.ObjectParameters.Serial = ONT.Device.Serial
+	device.DeviceContext.ObjectParameters.OnuID = ONU
+	device.DeviceContext.UpstreamInterface = PON
+	log.Infof("Creating ONT object %v", device.DeviceContext.DeviceName)
+	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", device)
+	log.Debugf("MCP result is %v", mcpresult)
+	if err != nil {
+		return err
 	}
+	//log.Infof("MCP result is %v", mcpresult.Output.Status)
+
 	// Create Ethernet interfaces
 	for index := 0; index < int(ONT.Definition.EthernetPorts); index++ {
 		var iface MCPInterface
@@ -246,9 +254,16 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		iface.InterfaceContext.DeviceName = subscriber + "-ONT"
 		iface.InterfaceContext.InterfaceID = "ethernet 0/" + strconv.Itoa(index+1)
 		iface.InterfaceContext.ProfileVector = "ONU Eth UNI Profile Vector"
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
-		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 4)
+
+		mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", iface)
+		if err != nil {
+			log.Errorf("Problem creating interface %v", iface.InterfaceContext.InterfaceName)
+		} else {
+			log.Infof("Created ONT interface %v", iface.InterfaceContext.InterfaceName)
+		}
+
+		//		log.Infof("MCP result is %v", mcpresult)
+		//		time.Sleep(time.Second * 4)
 
 		/*
 			time.Sleep(time.Second * 5)
@@ -268,9 +283,14 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 		iface.InterfaceContext.DeviceName = subscriber + "-ONT"
 		iface.InterfaceContext.InterfaceID = "fxs 0/" + strconv.Itoa(index+1)
 		iface.InterfaceContext.ProfileVector = "FXS Interface Profile Vector"
-		mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", iface)
-		log.Infof("MCP result is %v", mcpresult)
-		time.Sleep(time.Second * 5)
+		mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", iface)
+		if err != nil {
+			log.Errorf("Problem creating interface %v", iface.InterfaceContext.InterfaceName)
+		} else {
+			log.Infof("Created ONT interface %v", iface.InterfaceContext.InterfaceName)
+		}
+		//		log.Infof("MCP result is %v", mcpresult)
+		//		time.Sleep(time.Second * 5)
 	}
 	return err
 
@@ -330,6 +350,56 @@ func UpdateONT(subscriber string, ONT ONTData) error {
 	return err
 }
 
+func DeleteONT(subscriber string, ONT ONTData) error {
+	token, err := MCPAuth()
+	if err != nil {
+		log.Errorf("Could not authenticate to MCP %v", err)
+		return err
+	}
+	var mcpresult MCPResult
+
+	// Delete Ethernet interfaces
+	for index := 0; index < int(ONT.Definition.EthernetPorts); index++ {
+		var iface MCPInterface
+		iface.InterfaceContext.InterfaceName = subscriber + "-eth" + strconv.Itoa(index+1)
+
+		mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:delete", iface)
+		if err != nil {
+			log.Errorf("Problem deleting interface %v", iface.InterfaceContext.InterfaceName)
+		} else {
+			log.Infof("Deleted ONT interface %v", iface.InterfaceContext.InterfaceName)
+		}
+	}
+
+	// Delete FXS Interfaces
+	for index := 0; index < int(ONT.Definition.PotsPorts); index++ {
+		var iface MCPInterface
+		iface.InterfaceContext.InterfaceName = subscriber + "-fxs" + strconv.Itoa(index+1)
+		mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:delete", iface)
+		if err != nil {
+			log.Errorf("Problem deleting interface %v", iface.InterfaceContext.InterfaceName)
+		} else {
+			log.Infof("Deleted ONT interface %v", iface.InterfaceContext.InterfaceName)
+		}
+		//		log.Infof("MCP result is %v", mcpresult)
+		//		time.Sleep(time.Second * 5)
+	}
+	return err
+
+	var device MCPDevice
+	device.DeviceContext.DeviceName = subscriber + "-ONT"
+
+	log.Infof("Deleting ONT object %v", device.DeviceContext.DeviceName)
+	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:delete", device)
+	log.Debugf("MCP result is %v", mcpresult)
+	if err != nil {
+		log.Errorf("Problem deleting ONT %v", device.DeviceContext.DeviceName)
+	} else {
+		log.Infof("Delete ONT %v", device.DeviceContext.DeviceName)
+	}
+	return err
+}
+
 func CreateDataService(name string, device string, subscriberid string, profile string, contentprovider string, vlan int, port int) error {
 	if contentprovider == "" || vlan == 0 || profile == "" {
 		log.Errorf("This service is not properly configured %v - profile %v, cp %v, vlan %v", name, profile, contentprovider, vlan)
@@ -339,7 +409,7 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	token, err := MCPAuth()
 	var serviceInfo MCPServiceInfo
 	serviceInfo, err = GetService(token, name)
-	if serviceInfo.State == "deployed" {
+	if serviceInfo.State == "deployed" || serviceInfo.State == "activated" {
 		log.Info("Service is already deployed")
 		if int(serviceInfo.Uplink.InterfaceEndpoint.OuterTagVlanID.(float64)) != vlan {
 			log.Errorf("Service %v created with wrong vLAN", name)
@@ -360,12 +430,14 @@ func CreateDataService(name string, device string, subscriberid string, profile 
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InnerTagVlanID = "none"
 	service.ServiceContext.DownlinkContext.InterfaceEndpoint.InterfaceName = subscriberid + "-eth" + strconv.Itoa(port)
 	var mcpresult MCPResult
-	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
-	log.Infof("MCP result is %v", mcpresult)
+	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", service)
+	log.Debugf("MCP result is %v", mcpresult)
+
 	if err != nil {
-		return err
+		log.Errorf("Problem creating service %v", name)
+	} else {
+		log.Infof("Created service %v", name)
 	}
-	time.Sleep(time.Second * 5)
 	return err
 }
 
@@ -406,13 +478,14 @@ func CreatePhoneService(name string, device string, subscriberid string, profile
 	service.ServiceContext.ObjectParameters.SIPPassword = password
 
 	var mcpresult MCPResult
-	log.Infof("Service data for phone is %v", service)
-	mcpresult, err = MCPRequest(token, "adtran-cloud-platform-orchestration:create", service)
-	log.Infof("MCP result is %v", mcpresult)
+	log.Debugf("Service data for phone is %v", service)
+	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", service)
+	log.Debugf("MCP result is %v", mcpresult)
 	if err != nil {
-		return err
+		log.Errorf("Problem creating voice service %v", name)
+	} else {
+		log.Infof("Created ONT interface %v", name)
 	}
-	time.Sleep(time.Second * 5)
 	return err
 }
 
