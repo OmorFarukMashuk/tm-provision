@@ -101,11 +101,18 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					if err != nil {
 						log.Errorf("Problem getting subscribed product details %v", err)
 						result.Result = err.Error()
+						result.Success = false
 						kafka.SubmitResult(result)
 					} else {
-						servicedata.SubscribeProduct = subscribeservicearray[0]
-						servicedata.Name = subscriber + "-" + servicedata.SubscribeProduct.SubProductCode
-
+						if len(subscribeservicearray) == 1 {
+							servicedata.SubscribeProduct = subscribeservicearray[0]
+							servicedata.Name = subscriber + "-" + servicedata.SubscribeProduct.SubProductCode
+						} else {
+							log.Errorf("Could not get product for subprod_code %v", product.SubProductCode)
+							result.Result = "Internet provision Error - subprod_code " + product.SubProductCode + " does not exist!"
+							result.Success = false
+							kafka.SubmitResult(result)
+						}
 					}
 				} else {
 					servicedata.Name = subscriber + "-" + product.Category
