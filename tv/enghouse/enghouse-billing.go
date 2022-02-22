@@ -1,7 +1,10 @@
 package enghouse
 
 import (
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
+
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
@@ -163,8 +166,8 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 	timestring := "" // Use some time functions to create this value
 
 	// Get the subscribe record - this has the essential details in it
-	var subscribe telmax.Subscribe
-	subscribe, err = telmax.GetSubscribe(CoreDB, accountcode, subscribecode)
+	var subscribe maxbill.Subscribe
+	subscribe, err = maxbill.GetSubscribe(CoreDB, accountcode, subscribecode)
 	if subscribe.SubscribeCode == "" {
 		err = errors.New("Subscribe not found!")
 		return
@@ -191,7 +194,9 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 	}
 
 	// Get the channels that this account / subscribe combination have, and sort by TV channels.  We may need to get packages too
-	var channels []telmax.SubscribedProduct
+	var channels []maxbill.SubscribedProduct
+	var packages []maxbill.SubscribedProduct
+
 	channel_filters := []telmax.Filter{
 		telmax.Filter{
 			Key:   "account_code",
@@ -207,13 +212,31 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		},
 	}
 
+	package_filters := []telmax.Filter{
+		telmax.Filter{
+			Key:   "account_code",
+			Value: subscribe.AccountCode,
+		},
+		telmax.Filter{
+			Key:   "subscribe_code",
+			Value: subscribe.SubscribeCode,
+		},
+		telmax.Filter{
+			Key:   "category",
+			Value: "Package",
+		},
+	}
+
 	// Iterate over the channels.  If they have an Enghouse code, push onto the array
-	channels, err = telmax.GetServices(CoreDB, channel_filters)
+	channels, err = maxbill.GetServices(CoreDB, channel_filters)
+	packages, err = maxbill.GetServices(CoreDB, package_filters)
+
+	channels = append(channels, packages...) // Add the packgaes to the channels
 
 	for _, channel := range channels {
-		var productData telmax.Product
-		productData, err = telmax.GetProduct(CoreDB, "product_code", channel.ProductCode)
-		if productData.EnghouseCode != nil {
+		var productData maxbill.Product
+		productData, err = maxbill.GetProduct(CoreDB, "product_code", channel.ProductCode)
+		if productData.EnghouseCode != nil && (channel.Status == "New" || channel.Status == "Activate") {
 			accountdata.Service = append(accountdata.Service, EngService{
 				Service_codes: *productData.EnghouseCode,
 			})
@@ -229,7 +252,7 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 	}
 
 	// Do the same for devices.  Only get the Amino boxes.
-	var devices []telmax.Device
+	var tv_devices []devices.Device
 	device_filters := []telmax.Filter{
 		telmax.Filter{
 			Key:   "account_code",
@@ -244,9 +267,9 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 			Value: "DEVIDEFI0036", // This is the definition code for an Amino Amigo7x
 		},
 	}
-	devices, err = telmax.GetDevices(CoreDB, device_filters)
+	tv_devices, err = devices.GetDevices(CoreDB, device_filters)
 	var deviceList []EngDevice
-	for _, device := range devices {
+	for _, device := range tv_devices {
 		deviceList = append(deviceList, EngDevice{
 			HardwareDeviceID: device.Mac, // Maybe format this to make sure it is upper / no special chars, etc.
 		})

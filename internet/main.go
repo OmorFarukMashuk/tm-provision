@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	//	"github.com/Shopify/sarama"
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common"
 	"context"
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"

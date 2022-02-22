@@ -1,21 +1,23 @@
 package main
 
 import (
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
+
 	"time"
 )
 
 var ()
 
 type ONTData struct {
-	Device     telmax.Device
-	Definition telmax.DeviceDefinition
+	Device     devices.Device
+	Definition devices.DeviceDefinition
 }
 
 type OLTService struct {
 	Name             string
-	ProductData      telmax.Product
-	SubscribeProduct telmax.SubscribedProduct
+	ProductData      maxbill.Product
+	SubscribeProduct maxbill.SubscribedProduct
 	Vlan             int
 }
 
@@ -93,6 +95,7 @@ type MCPTransResult struct {
 	Status     string `json:"status"`
 	TransID    string `json:"trans-id"`
 	Completion string `json:"completion-status"`
+	Error      string `json:"error-message,omitempty"`
 }
 
 func (transresult *MCPTransResult) FixTime() {
