@@ -8,26 +8,21 @@ The EERO is an "RG" category device, but differs from the "smartRG" in that it d
 */
 
 import (
-	//"bson"
+	"context"
 	"encoding/json"
 	"flag"
-
-	//	"github.com/Shopify/sarama"
-	"context"
-
-	"bitbucket.org/timstpierre/telmax-common"
-	log "github.com/sirupsen/logrus"
-
-	//	"go.mongodb.org/mongo-driver/bson"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/mongo"
+
+	"bitbucket.org/telmaxdc/telmax-common"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var (

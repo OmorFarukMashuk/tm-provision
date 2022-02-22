@@ -2,15 +2,16 @@ package main
 
 import (
 	"fmt"
-
-	log "github.com/sirupsen/logrus"
-	//	"go.mongodb.org/mongo-driver/bson"
-	"bitbucket.org/telmaxnate/eero"
-	//"strings"
-
+	"strings"
 	"time"
 
-	"bitbucket.org/timstpierre/telmax-common"
+	log "github.com/sirupsen/logrus"
+
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+	"bitbucket.org/telmaxdc/telmax-common/lab"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
+	"bitbucket.org/telmaxnate/eero"
+
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
 )
@@ -33,6 +34,8 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 			if NewEero(request) {
 				break
 			}
+			log.Debugf("Sleeping for %d seconds\n", sleepTimer)
+			// if provision is not successful, sleep and retry
 			time.Sleep(sleepTimer * time.Second)
 		}
 	case "Update":
@@ -56,17 +59,12 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 }
 
 type ProvisionHandler struct {
-	//SubscribeInfo *telmax.Subscribe // a DB object
-	//DevicesInfo []*telmax.Device // a DB object(s)
-	NetId       int      // replace bool with non-zero value
-	HomeId      string   // "label", concat of AcctCode + SubscribeCode
-	EeroSerials []string // replace hasEero with one or more of these
-	//EeroDevices []*eero.Eero
-	//EeroNetwork *eero.Network
-	// copying the Eero info is pointless, just extract the important stuff
-	SnToSnid  map[string]int
-	SnToNetid map[string]int
-	Results   []string // can I do this??
+	NetId       int            // Network ID
+	HomeId      string         // "label", concat of AcctCode + SubscribeCode
+	EeroSerials []string       // collects Eero Serial Numbers in Provision Request
+	SnToSnid    map[string]int // API creates a SNID that is used in place of SN in some calls
+	SnToNetid   map[string]int // binding of SN to Network ID once assigned
+	Results     []string       // collect all results and publish to Kafka as one entry to reduce false positives
 }
 
 // NewEero handles 'New' and 'Update' provisioning requests
@@ -78,14 +76,14 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		if device.DeviceType == "RG" {
 			if eero.IsDeviceCode(device.DefinitionCode) {
 				if device.Serial == "" {
-					dev, err := telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					dev, err := devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 					if err != nil {
 						log.Errorf("Received NIL SN and cannot resolve device from Device Code (%s) - %v", device.DeviceCode, err)
 					} else {
-						eeroSerials = append(eeroSerials, dev.Serial)
+						eeroSerials = append(eeroSerials, strings.ToUpper(dev.Serial))
 					}
 				} else {
-					eeroSerials = append(eeroSerials, device.Serial)
+					eeroSerials = append(eeroSerials, strings.ToUpper(device.Serial))
 				}
 			}
 		}
@@ -94,13 +92,12 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		log.Infof("No Eeros in Provision Request")
 		return true
 	}
-	// changing the flow to only submit one result
-	// FAIL means run again!
+
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
 		Time:      time.Now(),
 	}
-	// mutable copy of the slice, necessary?
+	// instantiate maps to prevent panic
 	ph := &ProvisionHandler{
 		EeroSerials: eeroSerials,
 		HomeId:      request.AccountCode + request.SubscribeCode,
@@ -109,7 +106,7 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 	}
 
 	// retrieve the subscribe DB entry for this provision request
-	subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
 		log.Errorf("Problem (%v) getting subscribe entry by Account Code (%s) Subscribe Code (%s) from CoreDB", err, request.AccountCode, request.SubscribeCode)
 		result.Result = fmt.Sprintf("Problem (%v) getting subscribe entry by Account Code (%s) Subscribe Code (%s) from CoreDB", err, request.AccountCode, request.SubscribeCode)
@@ -118,7 +115,6 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		// failed access to the Core DB is a fatal error that prevents provisoning, will block
 		return false
 	}
-	// copy it into the provision handler, all checks will use this copy, all mods will occur on the direct object
 	// Check if subscribe.ACSSubscriber is a valid Eero Network, and if it IS do not create one.
 	// This will handle the Update Provision in the same place as New Device.
 	if subscribe.ACSSubscriber != 0 {
@@ -127,8 +123,9 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		if err != nil {
 			log.Infof("Error (%v) attempting to retrieve existing Subscribe.ACSSubscriber (ID %d), creating a new network", err, subscribe.ACSSubscriber)
 			ph.Results = append(ph.Results, fmt.Sprintf("Existing network (ID %d) unreachable (%v), creating a new network", subscribe.ACSSubscriber, err))
+			// as long as ph.NetId is not set, the next if block will create a new network
 		} else {
-			//
+			// network exists, do not create a new one but learn more about it
 			ph.NetId = subscribe.ACSSubscriber
 			net, err := eeroApi.GetNetworkById(ph.NetId)
 			if err != nil {
@@ -187,9 +184,11 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		if subscribe.LanSSID == "" {
 			subscribe.GenerateSSID()
 		}
+		// create a random PSK if one doesn't exist or isn't long enough
 		if subscribe.LanPassphrase == "" || len(subscribe.LanPassphrase) < 8 {
-			subscribe.LanPassphrase = telmax.RandString(12)
+			subscribe.LanPassphrase = lab.RandString(12)
 		}
+		// create network returns network ID
 		net, err := eeroApi.CreateDefaultNetwork(subscribe.LanSSID, subscribe.LanPassphrase)
 		if err != nil {
 			log.Errorf("Error (%v) creating new network (SSID %s) (PSK %s). Nulling SSID & PSK on Subscribe record", err, subscribe.LanSSID, subscribe.LanPassphrase)
@@ -206,6 +205,7 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 			}
 			return false
 		}
+		// utility strips the URL and converts to int
 		ph.NetId = eero.LastUrlSegmentInt(net.Url)
 		if ph.NetId == 0 {
 			// fringe event where net object returns but contains a URL that does not resolve to int
@@ -217,6 +217,7 @@ func NewEero(request telmaxprovision.ProvisionRequest) bool {
 		}
 		log.Infof("Created New Network (ID %d) (SSID %s) (PSK %s)", ph.NetId, subscribe.LanSSID, subscribe.LanPassphrase)
 		ph.Results = append(ph.Results, fmt.Sprintf("Created New Network (ID %d) (SSID %s) (PSK %s)", ph.NetId, subscribe.LanSSID, subscribe.LanPassphrase))
+		// anything else to add to the subscribe?
 		subscribe.ACSSubscriber = ph.NetId
 		err = subscribe.Update(CoreDB)
 		if err != nil {
@@ -289,19 +290,22 @@ device:
 		log.Infof("Successfully added Eero (SN %s) (SNID %d) to Network (ID %d)", sn, ph.SnToSnid[sn], ph.NetId)
 		ph.Results = append(ph.Results, fmt.Sprintf("Assigned Eero (SN %s) (SNID %d) to Network (ID %d)", sn, ph.SnToSnid[sn], ph.NetId))
 		// get the device to update it with provision outcome
-		device, err := telmax.GetDevice(CoreDB, "serial", sn)
+		device, err := devices.GetDevice(CoreDB, "serial", sn)
 		if err != nil {
 			log.Errorf("Problem getting Device record by Serial (Eero SN %s) from CoreDB - %v", sn, err)
 			ph.Results = append(ph.Results, fmt.Sprintf("Problem getting Device record by Serial (Eero SN %s) from CoreDB - %v", sn, err))
 			// only reason this would fail is due to connectivity issue with DB...?
 			continue device
 		}
+		// update the device record with everything we know
 		device.Firmware = dev.Os
 		device.DeviceModel = dev.Model
 		device.Accountcode = request.AccountCode
 		device.Subscribecode = request.SubscribeCode
-		device.Location = subscribe.Address.Street // bson:address
-		device.Status = "Activate"
+		device.Location = "Account"
+		device.RefreshAddress = subscribe.Address.Street // bson:address
+		device.RefreshDate = time.Now()
+		//device.Status = "Activate" --> managed by Billing!
 
 		// update the device record with new info
 		err = device.Update(CoreDB)
@@ -363,7 +367,7 @@ func EeroReturn(request telmaxprovision.ProvisionRequest) {
 				// DB Query until Request struct implements the Serial Number directly
 				// [??] Shouldn't this return also update the Device location and status?
 				if device.Serial == "" {
-					dev, err := telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					dev, err := devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 					if err != nil {
 						log.Errorf("Received NIL SN and cannot retrieve Database entry by Device Code (%s) - %v", device.DeviceCode, err)
 						// no result in Return
@@ -403,7 +407,7 @@ func EeroCancel(request telmaxprovision.ProvisionRequest) {
 				// DB Query until Request struct implements the Serial Number directly
 				// [??] Shouldn't this cancel also update the Device location and status?
 				if device.Serial == "" {
-					dev, err := telmax.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					dev, err := devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 					if err != nil {
 						log.Errorf("Received NIL SN and cannot retrieve Database entry by Device Code (%s) - %v", device.DeviceCode, err)
 						return
