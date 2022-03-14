@@ -94,6 +94,7 @@ func main() {
 
 	// Here's the API routes
 	router.HandleFunc("/dummy/{accountcode}/{subscribecode}", HandleDummyTest).Methods("GET")
+	router.HandleFunc("/onustatus/{accountcode}/{subscribecode}", HandleONUStatus).Methods("GET")
 
 	if *UseTLS {
 		log.Warning("Listening on " + *Listen + " TLS")
