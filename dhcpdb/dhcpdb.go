@@ -58,7 +58,7 @@ func DhcpAssign(node string, pool string, subs string) (reservation Reservation,
 		log.Info("Existing address already allocated")
 		return
 	} else {
-		log.Info("Allocating new address")
+		log.Infof("Allocating new address pool %v on node %v", pool, node)
 		var result sql.Result
 		result, err = db.ExecContext(ctx, `update hosts set status='Assigned',subscriber=?, dhcp_identifier=?, dhcp_identifier_type=2 where node= ? AND pool= ? AND status='Available'  order by host_id limit 1`, subs, dhcpid, node, pool)
 		if err != nil {
@@ -71,7 +71,7 @@ func DhcpAssign(node string, pool string, subs string) (reservation Reservation,
 		} else if rows > 0 {
 			reservation, err = dhcpGetAssign(ctx, subs, pool)
 		} else {
-			log.Fatal("Could not assign IP address")
+			log.Error("Could not assign IP address")
 		}
 	}
 

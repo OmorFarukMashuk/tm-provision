@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	MCPURL      = flag.String("mcpurl", "https://mcp01.dc1.osh.telmax.ca/api/restconf/", "URL and prefix for MCP Interaction")
+	MCPURL      = flag.String("mcpurl", "https://mcp02.tor2.telmax.ca/api/restconf/", "URL and prefix for MCP Interaction")
 	MCPUsername = flag.String("mcpusername", "provision", "MCP Username")
 	MCPPassword = flag.String("mcppassword", "Pr0vision", "MCP Password")
 )

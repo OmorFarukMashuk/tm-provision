@@ -123,22 +123,6 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			}
 		}
 
-		// If yes, then assign an IP address in DHCP
-		log.Warn("Allocating addresses in DHCP pools")
-		for pool, _ := range pools {
-			reservations[pool], err = dhcpdb.DhcpAssign(site.WireCentre, pool, subscriber)
-			var resulttext string
-			if err != nil {
-				resulttext = resulttext + "Problem assigning address " + err.Error() + "\n"
-				result.Success = false
-			} else {
-				resulttext = resulttext + "Assigned address from pool " + pool + " vlan " + strconv.Itoa(reservations[pool].VlanID) + "\n"
-				result.Success = true
-			}
-			result.Result = resulttext
-			kafka.SubmitResult(result)
-		}
-
 		// Get the ONT information
 
 		var hasONT bool
@@ -205,6 +189,23 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					kafka.SubmitResult(result)
 				}
 				//				time.Sleep(30 * time.Second)
+
+				// Get DHCP leases for each service that needs one
+				log.Warnf("Allocating addresses in DHCP pools %v", pools)
+				for pool, _ := range pools {
+					reservations[pool], err = dhcpdb.DhcpAssign(circuit.RoutingNode, pool, subscriber)
+					var resulttext string
+					if err != nil {
+						resulttext = resulttext + "Problem assigning address " + err.Error() + "\n"
+						result.Success = false
+					} else {
+						resulttext = resulttext + "Assigned address " + reservations[pool].V4Addr.String() + " from pool " + pool + " vlan " + strconv.Itoa(reservations[pool].VlanID) + "\n"
+						result.Success = true
+					}
+					result.Result = resulttext
+					kafka.SubmitResult(result)
+				}
+
 				// Add services
 				for _, service := range services {
 					if service.ProductData.NetworkProfile.AddressPool != "" {
@@ -217,7 +218,11 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 					case "Internet":
 						log.Infof("creating Internet service %v", service.ProductData.NetworkProfile.ProfileName)
-						err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+						if service.ProductData.NetworkProfile.ProfileName != "" {
+							err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+						} else {
+							log.Errorf("Service %v does not have a network profile!", service.Name)
+						}
 						break
 					case "Phone":
 						break
