@@ -11,7 +11,7 @@ type ProvisionRequest struct {
 	SubscribeCode string             // The subscribe code for this physical site or subscription
 	SiteID        string             // The identifier for the physical location
 	SubscribeName string             // The name of the subscription
-	RequestType   string             // Valid requests are New, Update, DeviceSwap, DeviceReturn, Cancel
+	RequestType   string             // Valid requests are New, Update, DeviceSwap, DeviceReturn, UnProvision, Cancel
 	RequestTicket string             // The TicketID if the request came from a ticket - used to add actions to tickets.
 	RequestUser   string             //  The user to notify if something went wrong (optional)
 	Products      []ProvisionProduct // A list of products to provision
@@ -31,7 +31,7 @@ type ProvisionDevice struct {
 	DefinitionCode string // The definition code that defines the device attributes
 	DeviceType     string // The type of device from the Definition Code
 	Mac            string // The MAC address of the device - normalize to letters and uppercase
-	Serial string // The Serial number for the device 
+	Serial         string // The Serial number for the device
 }
 
 type ProvisionResult struct {

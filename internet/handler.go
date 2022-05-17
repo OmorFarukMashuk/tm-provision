@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/telmaxdc/telmax-common/maxbill"
 	"bitbucket.org/timstpierre/telmax-provision/dhcpdb"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
+	"bitbucket.org/timstpierre/telmax-provision/mcp"
 	"bitbucket.org/timstpierre/telmax-provision/netdb"
 	"bitbucket.org/timstpierre/telmax-provision/structs"
 	"strconv"
@@ -31,11 +32,19 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 
 	case "DeviceReturn":
 
+	case "UnProvision":
+		UnProvisionServices(request)
+
 	case "Cancel":
+		UnProvisionServices(request)
+		DeleteONT(request)
+		//		ReleaseCircuit(request)
+
 	}
 
 }
 
+// Provision services as new (check to see if they exist already)
 func NewRequest(request telmaxprovision.ProvisionRequest) {
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
@@ -80,11 +89,11 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		// Check to see if they have any Internet services
 		pools := map[string]bool{}
 		reservations := map[string]dhcpdb.Reservation{}
-		var services []OLTService
+		var services []mcp.OLTService
 		log.Warn("Iterating through products to see which ones have a network profile")
 		for _, product := range request.Products {
 			var productData maxbill.Product
-			var servicedata OLTService
+			var servicedata mcp.OLTService
 			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
 			if productData.NetworkProfile != nil {
 				profile := *productData.NetworkProfile
@@ -126,7 +135,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		// Get the ONT information
 
 		var hasONT bool
-		var activeONT ONTData
+		var activeONT mcp.ONTData
 		for _, device := range request.Devices {
 			log.Infof("Device data is %v", device)
 			if device.DeviceType == "AccessTerminal" {
@@ -176,7 +185,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					kafka.SubmitResult(result)
 				}
 				// Create the ONT record in MCP
-				err = CreateONT(subscriber, activeONT, PON, ONU)
+				err = mcp.CreateONT(subscriber, activeONT, PON, ONU)
 				if err != nil {
 					result.Result = err.Error()
 					result.Success = false
@@ -219,7 +228,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					case "Internet":
 						log.Infof("creating Internet service %v", service.ProductData.NetworkProfile.ProfileName)
 						if service.ProductData.NetworkProfile.ProfileName != "" {
-							err = CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
+							err = mcp.CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
 						} else {
 							log.Errorf("Service %v does not have a network profile!", service.Name)
 						}
@@ -265,7 +274,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 						} else if did.UserData == nil {
 							result.Result = "Missing user data for DID " + voicesvc.Username
 						} else {
-							err = CreatePhoneService(subscriber+"-"+voicesvc.Username, subscriber+"-ONT", subscriber, profile, CP, voicevlan, did.Number, did.UserData.SIPPassword, int(voicesvc.Line))
+							err = mcp.CreatePhoneService(subscriber+"-"+voicesvc.Username, subscriber+"-ONT", subscriber, profile, CP, voicevlan, did.Number, did.UserData.SIPPassword, int(voicesvc.Line))
 							if err != nil {
 								result.Result = "Problem adding voice service " + err.Error()
 								result.Success = false
@@ -279,6 +288,110 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				}
 			}
 		}
+
+	} else {
+		log.Info("Not a fibre customer")
+	}
+	return
+}
+
+// Unprovision services
+func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
+	result := telmaxprovision.ProvisionResult{
+		RequestID: request.RequestID,
+		Time:      time.Now(),
+	}
+
+	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	if err != nil {
+		log.Errorf("Problem getting subscriber %v", err)
+		result.Result = err.Error()
+		kafka.SubmitResult(result)
+
+	}
+	if subscribe.NetworkType == "Fibre" {
+		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+		//		var site Site
+		var circuit netdb.Circuit
+
+		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
+
+		for _, product := range request.Products {
+			var productData maxbill.Product
+			//			var servicedata OLTService
+			var success bool
+			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
+			if productData.NetworkProfile != nil {
+				name := subscriber + "-" + product.SubProductCode
+				if productData.NetworkProfile.AddressPool != "" {
+					success, err = dhcpdb.DhcpRelease(circuit.RoutingNode, productData.NetworkProfile.AddressPool, subscriber)
+					if err != nil {
+						log.Errorf("Problem getting subscribed product details %v", err)
+						result.Result = err.Error()
+						result.Success = false
+						kafka.SubmitResult(result)
+					} else if success == true {
+						result.Result = "Removed DHCP lease from pool " + productData.NetworkProfile.AddressPool
+					}
+				}
+
+				err = mcp.DeleteService(name)
+				if err != nil {
+					log.Errorf("Problem deleting service %v %v", name, err)
+					result.Result = err.Error()
+					result.Success = false
+					kafka.SubmitResult(result)
+				} else if success == true {
+					result.Success = true
+					result.Result = "Removed service " + name
+				}
+				kafka.SubmitResult(result)
+
+			}
+		}
+
+	} else {
+		log.Info("Not a fibre customer")
+	}
+	return
+}
+
+// Remove the ONT and interfaces
+func DeleteONT(request telmaxprovision.ProvisionRequest) {
+	result := telmaxprovision.ProvisionResult{
+		RequestID: request.RequestID,
+		Time:      time.Now(),
+	}
+
+	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+	if err != nil {
+		log.Errorf("Problem getting subscriber %v", err)
+		result.Result = err.Error()
+		kafka.SubmitResult(result)
+
+	}
+	if subscribe.NetworkType == "Fibre" {
+		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+		name := subscriber + "-ONT"
+		//		var site Site
+		var circuit netdb.Circuit
+
+		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
+		var ONT mcp.ONTData
+		ONT.Definition.EthernetPorts = 2
+		ONT.Definition.PotsPorts = 2
+		err = mcp.DeleteONT(subscriber, ONT)
+		if err != nil {
+			log.Errorf("Problem deleting ONT %v %v", name, err)
+			result.Result = err.Error()
+			result.Success = false
+			kafka.SubmitResult(result)
+		} else {
+			netdb.ReleaseCircuit(CoreDB, circuit.ID)
+			result.Success = true
+			result.Result = "Removed service " + name
+		}
+		kafka.SubmitResult(result)
 
 	} else {
 		log.Info("Not a fibre customer")
@@ -308,7 +421,7 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 		// Get the ONT information
 
 		var hasONT bool
-		var activeONT ONTData
+		var activeONT mcp.ONTData
 		for _, device := range request.Devices {
 			log.Infof("Device data is %v", device)
 			if device.DeviceType == "AccessTerminal" {
@@ -330,7 +443,7 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 			//			var CP string
 
 			// Update the ONT record in MCP
-			err = UpdateONT(subscriber, activeONT)
+			err = mcp.UpdateONT(subscriber, activeONT)
 			if err != nil {
 				result.Result = err.Error()
 				kafka.SubmitResult(result)

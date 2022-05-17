@@ -385,7 +385,6 @@ func DeleteONT(subscriber string, ONT ONTData) error {
 		//		log.Infof("MCP result is %v", mcpresult)
 		//		time.Sleep(time.Second * 5)
 	}
-	return err
 
 	var device MCPDevice
 	device.DeviceContext.DeviceName = subscriber + "-ONT"
@@ -396,7 +395,7 @@ func DeleteONT(subscriber string, ONT ONTData) error {
 	if err != nil {
 		log.Errorf("Problem deleting ONT %v", device.DeviceContext.DeviceName)
 	} else {
-		log.Infof("Delete ONT %v", device.DeviceContext.DeviceName)
+		log.Infof("Deleted ONT %v", device.DeviceContext.DeviceName)
 	}
 	return err
 }
@@ -487,6 +486,27 @@ func CreatePhoneService(name string, device string, subscriberid string, profile
 		log.Errorf("Problem creating voice service %v", name)
 	} else {
 		log.Infof("Created ONT interface %v", name)
+	}
+	return err
+}
+
+// Delete a service object
+func DeleteService(name string) error {
+	token, err := MCPAuth()
+	if err != nil {
+		log.Errorf("Could not authenticate to MCP %v", err)
+		return err
+	}
+	var mcpresult MCPResult
+	var service MCPService
+	service.ServiceContext.ServiceID = name
+
+	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:delete", service)
+	log.Debugf("MCP result is %v", mcpresult)
+	if err != nil {
+		log.Errorf("Problem deleting Service %v", name)
+	} else {
+		log.Infof("Delete service %v", service)
 	}
 	return err
 }

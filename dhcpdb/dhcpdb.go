@@ -79,6 +79,31 @@ func DhcpAssign(node string, pool string, subs string) (reservation Reservation,
 
 }
 
+// Release a specific address
+func DhcpRelease(node string, pool string, subs string) (success bool, err error) {
+	db := SQLConnect()
+	defer db.Close()
+	ctx := context.TODO()
+	//	dhcpid := subs
+
+	log.Infof("Releasing address pool %v on node %v", pool, node)
+	var result sql.Result
+	result, err = db.ExecContext(ctx, `update hosts set status='Available',subscriber='', dhcp_identifier='' where node= ? AND pool= ? AND subscriber= ?  order by host_id limit 3`, node, pool, subs)
+	if err != nil {
+		log.Info(err)
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if err != nil {
+		log.Info("Problem releasing IP address")
+	} else if rows > 0 {
+		success = true
+	}
+
+	return
+
+}
+
 func DhcpReleaseAll(subs string) error {
 	ctx := context.TODO()
 	db := SQLConnect()
