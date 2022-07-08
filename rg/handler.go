@@ -3,11 +3,12 @@ package main
 import (
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
-	"bitbucket.org/timstpierre/smartrg"
+	"bitbucket.org/telmaxdc/smartrg"
 	//"strings"
-	"bitbucket.org/timstpierre/telmax-common"
-	"bitbucket.org/timstpierre/telmax-provision/kafka"
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
+
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	"bitbucket.org/telmaxdc/telmax-provision/structs"
 	"strconv"
 	"time"
 )
@@ -70,7 +71,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	}
 	subscriberaccount := request.AccountCode + request.SubscribeCode
 	if hasRG {
-		subscribe, err := telmax.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
+		subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 		if err != nil {
 			log.Errorf("Problem getting subscriber %v", err)
 			return

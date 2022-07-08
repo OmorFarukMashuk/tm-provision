@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	TelAPI = "http://int02.dc1.osh.telmax.ca:5002"
+	TelAPI = "http://telephone.api.telmax.ca:5002"
 )
 
 func GetDID(number string) (did DID, err error) {

@@ -15,8 +15,8 @@ import (
 	"context"
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
-	"bitbucket.org/timstpierre/telmax-provision/kafka"
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	"bitbucket.org/telmaxdc/telmax-provision/structs"
 	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"os/signal"
@@ -29,10 +29,10 @@ var (
 	LogLevel   = flag.String("loglevel", "info", "Log Level")
 	TZLocation *time.Location
 	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
-	KafkaBrk   = flag.String("kafka.brokers", "kf01.dc1.osh.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
-	KafkaGroup = flag.String("kafka.group", "internet-olt", "Kafka group id")                                          // Change this to your provision subsystem name
+	KafkaBrk   = flag.String("kafka.brokers", "kfk01.tor2.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
+	KafkaGroup = flag.String("kafka.group", "internet-olt", "Kafka group id")                                        // Change this to your provision subsystem name
 
-	MongoURI     = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
+	MongoURI     = flag.String("mongouri", "mongodb://coredb.telmax.ca:27017", "MongoDB URL for telephone database")
 	CoreDatabase = flag.String("coredatabase", "telmaxmb", "Core Database name")
 	//	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
 	NetworkDatabase = flag.String("networkdatabase", "network", "Database for Networking")

@@ -1,7 +1,7 @@
 package kafka
 
 import (
-	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
+	telmaxprovision "bitbucket.org/telmaxdc/telmax-provision/structs"
 	//"flag"
 	"encoding/json"
 

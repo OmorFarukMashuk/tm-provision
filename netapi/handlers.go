@@ -3,8 +3,8 @@ package main
 import (
 	//	"bitbucket.org/telmaxdc/telmax-common/devices"
 	"bitbucket.org/telmaxdc/telmax-common/maxbill"
-	//	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
-	"bitbucket.org/timstpierre/telmax-provision/mcp"
+	//	telmaxprovision "bitbucket.org/telmaxdc/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/mcp"
 	"encoding/json"
 	"errors"
 	"github.com/gorilla/mux"

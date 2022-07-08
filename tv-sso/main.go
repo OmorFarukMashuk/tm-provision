@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common"
 	"context"
 	"flag"
 	"github.com/gorilla/mux"

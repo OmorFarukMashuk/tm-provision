@@ -7,8 +7,8 @@ import (
 	"bitbucket.org/telmaxdc/telmax-common/devices"
 
 	//"strings"
-	"bitbucket.org/timstpierre/telmax-provision/kafka"
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	"bitbucket.org/telmaxdc/telmax-provision/structs"
 	"telmax-provision/tv/enghouse"
 	"time"
 )
@@ -30,6 +30,7 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 		DeviceReturn(request)
 
 	case "Cancel":
+		CancelRequest(request)
 	}
 }
 

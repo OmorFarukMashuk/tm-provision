@@ -6,10 +6,10 @@ import (
 	//"fmt"
 	"errors"
 	"flag"
+	//	"github.com/ammario/ipint"
 	"github.com/davecgh/go-spew/spew"
 	_ "github.com/go-sql-driver/mysql"
 	log "github.com/sirupsen/logrus"
-	"ipint"
 	"net"
 	"strconv"
 )
@@ -19,6 +19,7 @@ var (
 	SQLHost = flag.String("dhcpdb.host", "dhcp04.tor2.telmax.ca", "DHCP SQL hostname")
 )
 
+// Connect to the SQL database that stores the leases and reservations
 func SQLConnect() *sql.DB {
 	s := sqlServer{
 		Hostname: *SQLHost,
@@ -104,6 +105,7 @@ func DhcpRelease(node string, pool string, subs string) (success bool, err error
 
 }
 
+// Release all addresses assigned to a given subscriber.  Handy if they cancel and you want to clean up
 func DhcpReleaseAll(subs string) error {
 	ctx := context.TODO()
 	db := SQLConnect()
@@ -123,19 +125,20 @@ func DhcpReleaseAll(subs string) error {
 	return err
 }
 
+// Get a specific reservation with a subscriber ID and a pool name
 func dhcpGetAssign(ctx context.Context, subs string, pool string) (reservation Reservation, err error) {
 	db := SQLConnect()
 	defer db.Close()
 	log.Info("requesting reservation for subscriber " + subs + " in pool " + pool)
 
 	//var id int
-	sqlQuery := `select host_id,dhcp6_subnet_id,dhcp_identifier,pool,node,vlan,ipv4_address from hosts where subscriber=? AND pool=?`
+	sqlQuery := `select host_id,dhcp6_subnet_id,dhcp_identifier,pool,node,vlan,inet_ntoa(ipv4_address) from hosts where subscriber=? AND pool=?`
 	//sqlQuery := `select host_id from hosts where circuit_id=?`
 
 	row := db.QueryRow(sqlQuery, subs, pool)
 
 	var dhcpid sql.NullString
-	var v4address int64
+	var v4address string
 
 	switch err = row.Scan(&reservation.HostID, &reservation.SubnetID, &dhcpid, &reservation.Pool, &reservation.Node, &reservation.VlanID, &v4address); err {
 	//switch err := row.Scan(&id); err {
@@ -151,8 +154,8 @@ func dhcpGetAssign(ctx context.Context, subs string, pool string) (reservation R
 			reservation.DhcpID = dhcpid.String
 			log.Debug("DHCP ID is " + reservation.DhcpID)
 		}
-		reservation.V4Addr = ipint.Int2ip(uint32(v4address))
-
+		//		reservation.V4Addr = ipint.Int2ip(uint32(v4address))
+		reservation.V4Addr = net.ParseIP(v4address)
 		sqlQuery = `select reservation_id,address,prefix_len,type,dhcp6_iaid,host_id from ipv6_reservations where host_id=?`
 		rows, err := db.QueryContext(ctx, sqlQuery, hostidstr)
 		if err != nil {
@@ -181,7 +184,7 @@ func dhcpGetAssign(ctx context.Context, subs string, pool string) (reservation R
 				}
 			}
 		}
-		log.Info(spew.Sdump(reservation))
+		log.Debug(spew.Sdump(reservation))
 
 	default:
 		log.Errorf("Problem getting DHCP allocation %v", err)

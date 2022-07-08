@@ -1,3 +1,11 @@
+/*
+	Internet provisioning handler for telMAX distributed provisioning system
+
+	This service will consume provision requests and execute network provisioning to enable
+	Internet services on FTTx networks using AdTran MCP.  This service also interacts with
+	the circuit database to assign and maintain access circuit records, as well as the DHCP
+	database to allocate IP address resources to customers.
+*/
 package main
 
 import (
@@ -8,15 +16,16 @@ import (
 	"bitbucket.org/telmaxdc/telmax-common"
 	"bitbucket.org/telmaxdc/telmax-common/devices"
 	"bitbucket.org/telmaxdc/telmax-common/maxbill"
-	"bitbucket.org/timstpierre/telmax-provision/dhcpdb"
-	"bitbucket.org/timstpierre/telmax-provision/kafka"
-	"bitbucket.org/timstpierre/telmax-provision/mcp"
-	"bitbucket.org/timstpierre/telmax-provision/netdb"
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/dhcpdb"
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	"bitbucket.org/telmaxdc/telmax-provision/mcp"
+	"bitbucket.org/telmaxdc/telmax-provision/netdb"
+	"bitbucket.org/telmaxdc/telmax-provision/structs"
 	"strconv"
 	"time"
 )
 
+// Accept and process a provision request and invoke the appropriate functions based on the request type
 func HandleProvision(request telmaxprovision.ProvisionRequest) {
 	log.Infof("Got provision request %v", request)
 	switch request.RequestType {
@@ -46,6 +55,8 @@ func HandleProvision(request telmaxprovision.ProvisionRequest) {
 
 // Provision services as new (check to see if they exist already)
 func NewRequest(request telmaxprovision.ProvisionRequest) {
+
+	// Generate a new result object
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
 		Time:      time.Now(),
@@ -58,11 +69,14 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		kafka.SubmitResult(result)
 
 	}
+
+	// We only act on this if the subscription is Fibre
 	if subscribe.NetworkType == "Fibre" {
 		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
 		var site Site
 		var PON string
 
+		// Check to see if there is a site ID  If not, we can't really proceed
 		if subscribe.SiteID != "" {
 			site, err = GetSite(subscribe.SiteID)
 			if err != nil {
@@ -90,6 +104,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		pools := map[string]bool{}
 		reservations := map[string]dhcpdb.Reservation{}
 		var services []mcp.OLTService
+
+		// We only need to provision products that have a network profile field.  This determines the network provisioning template
 		log.Warn("Iterating through products to see which ones have a network profile")
 		for _, product := range request.Products {
 			var productData maxbill.Product
@@ -136,12 +152,15 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 		var hasONT bool
 		var activeONT mcp.ONTData
+
+		// Go through the devices in the request and see if any of them are AdTran ONTs  This could be modified for other qualifying devices
 		for _, device := range request.Devices {
 			log.Infof("Device data is %v", device)
 			if device.DeviceType == "AccessTerminal" {
 				var definition devices.DeviceDefinition
 				definition, err = devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
 				log.Infof("Device definition is %v", definition)
+				// Adjust this if other devices or upstream interfaces need to be supported
 				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
 					log.Infof("Found ONT")
 					activeONT.Definition = definition
@@ -151,15 +170,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 			}
 		}
-		// Create ONT record
+		// Create ONT record - don't bother if we didn't find an ONT in the device list
 		if hasONT {
 			var ONU int
 			var CP string
 
-			// Check for PON assignment
+			// Check for PON assignment - return an error if we don't have PON data yet
 			if PON == "" {
 				log.Errorf("Site %v does not have PON data", site)
 				result.Result = "PON data missing for site"
+				result.Success = false
 				kafka.SubmitResult(result)
 			} else {
 				// Assign a circuit and ONU ID
@@ -167,6 +187,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				if err != nil {
 					log.Errorf("Problem assigning circuit %v", err)
 					result.Result = err.Error()
+					result.Success = false
 					kafka.SubmitResult(result)
 					return
 				} else {
@@ -184,7 +205,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					result.Success = true
 					kafka.SubmitResult(result)
 				}
-				// Create the ONT record in MCP
+				// Create the ONT record in MCP  This will also create the ONT interfaces
 				err = mcp.CreateONT(subscriber, activeONT, PON, ONU)
 				if err != nil {
 					result.Result = err.Error()
@@ -199,7 +220,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				}
 				//				time.Sleep(30 * time.Second)
 
-				// Get DHCP leases for each service that needs one
+				// Get DHCP leases for each service that needs one  This is based on the network profile, if a DHCP pool is listed
 				log.Warnf("Allocating addresses in DHCP pools %v", pools)
 				for pool, _ := range pools {
 					reservations[pool], err = dhcpdb.DhcpAssign(circuit.RoutingNode, pool, subscriber)
@@ -217,6 +238,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 				// Add services
 				for _, service := range services {
+
+					// You need the vlan ID from the reservation to know which VLAN the customer should be connected to
 					if service.ProductData.NetworkProfile.AddressPool != "" {
 						service.Vlan = reservations[service.ProductData.NetworkProfile.AddressPool].VlanID
 						log.Infof("Vlan ID is %v", service.Vlan)
@@ -224,7 +247,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 						service.Vlan = service.ProductData.NetworkProfile.Vlan
 					}
 					switch service.ProductData.Category {
-
+					// Configure for an Internet service
 					case "Internet":
 						log.Infof("creating Internet service %v", service.ProductData.NetworkProfile.ProfileName)
 						if service.ProductData.NetworkProfile.ProfileName != "" {
@@ -233,6 +256,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 							log.Errorf("Service %v does not have a network profile!", service.Name)
 						}
 						break
+						// Phone is done a different way.  That said, we could add a "data" service for IP phones at some point.
 					case "Phone":
 						break
 					}
@@ -249,12 +273,14 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					}
 				}
 
-				// Add POTS ports
+				// Add POTS ports - iterate through the phone numbers on the ONT device record
 				for _, voicesvc := range activeONT.Device.VoiceServices {
 					if voicesvc.Username != "" {
 						log.Infof("Creating voice service for DID %v", voicesvc.Username)
 						var profile string
 						var voicevlan int
+
+						// Right now, we only have residential, but we could use the domain to determine some config options
 						switch voicesvc.Domain {
 						case "residential.telmax.ca":
 							profile = "telmax-res-voice"
@@ -266,14 +292,18 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 							break
 						}
 						var did DID
+						// Get the DID information from the telephone database
 						did, err = GetDID(voicesvc.Username)
 						log.Infof("DID data is %v", did)
 						if err != nil {
 							log.Errorf("Problem getting voice DID %v", err)
+							result.Success = false
 							result.Result = "Could not get DID " + voicesvc.Username + " from telephone API"
 						} else if did.UserData == nil {
+							result.Success = false
 							result.Result = "Missing user data for DID " + voicesvc.Username
 						} else {
+							// Create a voice service in MCP, now that we have all the information we need
 							err = mcp.CreatePhoneService(subscriber+"-"+voicesvc.Username, subscriber+"-ONT", subscriber, profile, CP, voicevlan, did.Number, did.UserData.SIPPassword, int(voicesvc.Line))
 							if err != nil {
 								result.Result = "Problem adding voice service " + err.Error()
@@ -295,7 +325,9 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	return
 }
 
-// Unprovision services
+// Unprovision services - used for cancelling a customer, or backing out provisioning (wrong PON or other re-do)
+// This is similar to provision, but a bit simpler and only removes the services.  Could also apply for a cancellation
+// of a subset of services, but not the whole thing.
 func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
@@ -315,7 +347,7 @@ func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
 		var circuit netdb.Circuit
 
 		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
-
+		// Make a list of the services we need to remove  Mostly, we just need the name
 		for _, product := range request.Products {
 			var productData maxbill.Product
 			//			var servicedata OLTService
@@ -323,6 +355,7 @@ func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
 			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
 			if productData.NetworkProfile != nil {
 				name := subscriber + "-" + product.SubProductCode
+				// If there was a DHCP pool, go and release the address back to the pool
 				if productData.NetworkProfile.AddressPool != "" {
 					success, err = dhcpdb.DhcpRelease(circuit.RoutingNode, productData.NetworkProfile.AddressPool, subscriber)
 					if err != nil {
@@ -334,7 +367,7 @@ func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
 						result.Result = "Removed DHCP lease from pool " + productData.NetworkProfile.AddressPool
 					}
 				}
-
+				// Delete the service object
 				err = mcp.DeleteService(name)
 				if err != nil {
 					log.Errorf("Problem deleting service %v %v", name, err)
@@ -375,9 +408,10 @@ func DeleteONT(request telmaxprovision.ProvisionRequest) {
 		name := subscriber + "-ONT"
 		//		var site Site
 		var circuit netdb.Circuit
-
+		// Get the circuit so we can clean it up properly
 		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
 		var ONT mcp.ONTData
+		// We are assuming a 622V in all cases.  There is no harm if the interfaces don't exist
 		ONT.Definition.EthernetPorts = 2
 		ONT.Definition.PotsPorts = 2
 		err = mcp.DeleteONT(subscriber, ONT)
@@ -387,6 +421,7 @@ func DeleteONT(request telmaxprovision.ProvisionRequest) {
 			result.Success = false
 			kafka.SubmitResult(result)
 		} else {
+			// Release the circuit back to the pool
 			netdb.ReleaseCircuit(CoreDB, circuit.ID)
 			result.Success = true
 			result.Result = "Removed service " + name
@@ -439,8 +474,6 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 		}
 		// Update ONT record
 		if hasONT {
-			//			var ONU int
-			//			var CP string
 
 			// Update the ONT record in MCP
 			err = mcp.UpdateONT(subscriber, activeONT)

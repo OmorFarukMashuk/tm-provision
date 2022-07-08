@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bitbucket.org/timstpierre/telmax-common"
+	"bitbucket.org/telmaxdc/telmax-common/maxbill"
 	"encoding/xml"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -14,7 +14,7 @@ func HandleCheckAuth(w http.ResponseWriter, r *http.Request) {
 	username, password, ok := r.BasicAuth()
 	if ok && username != "" {
 		log.Infof("Username is %v password is %v", username, password)
-		subscribes, err := telmax.GetSubscribes(CoreDB, "tv_username", username)
+		subscribes, err := maxbill.GetSubscribes(CoreDB, "tv_username", username)
 		if err != nil {
 			log.Errorf("Problem getting TV account with username %v, %v", username, err)
 			http.Error(w, "Authentication Failed", http.StatusUnauthorized)

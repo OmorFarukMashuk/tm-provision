@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	QGISAPI    = "http://int02.dc1.osh.telmax.ca:5008/"
+	QGISAPI    = "http://qgis.api.telmax.ca:5008/"
 	QGISAPIKey = "098g5467o456n78s8e5878c8ty4578uihdsrc"
 )
 

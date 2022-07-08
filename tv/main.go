@@ -14,8 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
 	"bitbucket.org/telmaxdc/telmax-common"
-	"bitbucket.org/timstpierre/telmax-provision/kafka"
-	"bitbucket.org/timstpierre/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	"bitbucket.org/telmaxdc/telmax-provision/structs"
 	"context"
 
 	//	"github.com/Shopify/sarama"
