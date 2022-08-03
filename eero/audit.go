@@ -4,27 +4,39 @@ import (
 	"time"
 
 	"bitbucket.org/telmaxdc/telmax-common/lab"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // auditDaemon learns about the network then periodically checks to see if there
 // are any actions that must be taken
+// refreshing its database every hour
+// and performing daily tasks during off-peak hours
 func auditDaemon() {
-	eeroSummary := eeroApi.RetrieveEeroNetworkSummary()
-	//lab.SendToZabbix(lab.DefaultZabbixSetup("eero-summary", eeroSummary)
-	for {
-		eeroApi.UpdateMissingNetworkLabels(CoreDB, DhcpDB, eeroSummary)
-		eeroApi.TransferNetworks(CoreDB, eeroSummary)
-		//eeroApi.GenerateStatusReport()
-		//eeroApi.
-		if lab.OffHours() {
-			eeroApi.UpdateFirmwareBulk(eeroSummary)
+	//start := time.Now()
+	eeroApi.UpdateEeroDatabase() // run on init
+	for {                        // forever
+		lastDay := time.Now()
+		for { // day timer
+			lastHour := time.Now()
+			for { // hour timer
+				if time.Since(lastHour) > time.Duration(60*time.Minute) {
+					eeroApi.UpdateEeroDatabase()
+					eeroApi.UpdateMissingNetworkLabels(CoreDB, DhcpDB)
+					eeroApi.TransferNetworks(CoreDB)
+					break
+				}
+			}
+			// more than 24 hours since last time but only in off-peak hours window
+			if time.Since(lastDay) > time.Duration(24*time.Hour) && lab.OffHours() {
+				eeroApi.UntransferPendingNetworks()
+				eeroApi.FirmwareUpdateNetworks()
+				eeroApi.LatestSpeedTests()
+				eeroApi.RemoveDerelictNetworks()
+				break
+			}
 		}
-		time.Sleep(time.Duration(15 * time.Minute))
-		eeroSummary, err = eeroApi.UpdateNetworkSummary(eeroSummary)
-		if err != nil {
-			log.Errorf("updating network summary - %v", err)
-		}
+		// TODO
+		// send results to zabbix
+		// expose metrics
+		// graceful shutdown
 	}
 }

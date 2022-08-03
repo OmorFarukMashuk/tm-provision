@@ -21,8 +21,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"bitbucket.org/telmaxdc/telmax-common"
-	"bitbucket.org/telmaxdc/telmax-common/lab"
 	"bitbucket.org/timstpierre/telmax-provision/kafka"
 	telmaxprovision "bitbucket.org/timstpierre/telmax-provision/structs"
 
@@ -36,11 +34,13 @@ var (
 	KafkaBrk   = flag.String("kafka.brokers", "kfk01.tor2.telmax.ca:9092, kfk02.tor2.telmax.ca:9092, kfk03.tor2.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
 	KafkaGroup = flag.String("kafka.group", "eero", "Kafka group id")                                                                                                      // Change this to your provision subsystem name
 
-	MongoURI       = flag.String("mongouri", "mongodb://coredb01.dc1.osh.telmax.ca:27017", "MongoDB URL for telephone database")
-	CoreDatabase   = flag.String("coredatabase", "telmaxmb", "Core Database name")
-	TicketDatabase = flag.String("ticketdatabase", "maxticket", "Database for ticketing")
+	MongoURI       = flag.String("mongo.uri", "mongodb://coredb.telmax.ca:27017", "MongoDB URL for telmax database")
+	MongoUser      = flag.String("mongo.user", "maxcoredb", "MongoDB User")
+	MongoPass      = flag.String("mongo.pass", "coredbmax955TEL", "MongoDB Password")
+	CoreDatabase   = flag.String("mongo.core", "telmaxmb", "Core Database name")
+	TicketDatabase = flag.String("mongo.ticket", "maxticket", "Ticketing Database name")
 
-	DBClient *mongo.Client
+	//DBClient *mongo.Client
 	CoreDB   *mongo.Database
 	TicketDB *mongo.Database
 
@@ -48,19 +48,12 @@ var (
 	accessKey = flag.String("eero.key", "15974148|12d467oiahrvacdvfv1f4jl2gs", "Eero API Access Key returned from Login Post")
 	tempCode  = flag.Int("eero.code", 0, "Eero API Verification Code sent to Email")
 	eeroApi   = &eero.EeroApi{Gateway: "api-user.e2ro.com"}
-	err       error
 	brokers   []string
 	topics    []string
 
-	//sleepSec       = flag.Int("audit.ss", 900, "Time in seconds to sleep between poll/send intervals")
-	//needsNetwork   = flag.Bool("nn", false, "Update any networks that do not have a Home ID with the telMAX Account-Subscribe code")
-	//cachedSummary  = flag.String("cs", "", "A cached JSON file representing the Network Summary to skip the tedious loading stage")
-	//xferNets       = flag.Bool("xn", false, "Transfer Networks to Customers")
-	//toZabbix       = flag.Bool("tz", false, "Send to Zabbix (Pretty JSON RAW Dump)")
-	//statusCheck    = flag.Bool("sr", false, "Generate Status Report")
-	//updateFirmware = flag.Bool("uf", false, "Bulk Update Firmware")
-
 	SQLHost = flag.String("dhcpdb.host", "dhcp04.tor2.telmax.ca", "DHCP SQL hostname")
+	SQLUser = flag.String("dhcpdb.user", "provisioning", "DHCP SQL Username")
+	SQLPass = flag.String("dhcpdb.pass", "telMAXProv720", "DHCP SQL Password")
 	DhcpDB  *sql.DB
 )
 
@@ -70,7 +63,7 @@ func init() {
 	flag.Parse()
 	eeroApi.Key = *accessKey
 	if eeroApi.Key == "" {
-		err = eeroApi.Login(*userEmail)
+		err := eeroApi.Login(*userEmail)
 		if err != nil {
 			log.Fatalln(err)
 		} else {
@@ -81,7 +74,7 @@ func init() {
 	// Only used to verify email first time.
 	eeroApi.Code = *tempCode
 	if eeroApi.Code != 0 {
-		err = eeroApi.Verify()
+		err := eeroApi.Verify()
 		if err != nil {
 			log.Fatalln(err)
 		} else {
@@ -94,36 +87,18 @@ func init() {
 	}
 	log.SetLevel(log.Level(lvl))
 	TZLocation, _ = time.LoadLocation("America/Toronto")
+	CoreDB = eeroApi.InitDB(*MongoURI, *MongoUser, *MongoPass, *CoreDatabase, "eero")
+	DhcpDB = SQLConnect()
 
-	// Connect to the database
-	DBClient = telmax.DBConnect(*MongoURI, "maxcoredb", "coredbmax955TEL")
-	if DBClient != nil {
-		log.Infof("Connected to MaxBill")
-		CoreDB = DBClient.Database(*CoreDatabase)
-		TicketDB = DBClient.Database(*TicketDatabase)
-	}
-	if CoreDB != nil {
-		log.Infof("Connected to CoreDB")
-	}
-	if TicketDB != nil {
-		log.Infof("Connected to TicketDB")
-	}
-	DhcpDB = lab.SQLConnect(lab.GenericMySqlConnect())
-	err = DhcpDB.Ping()
-	if err != nil {
-		log.Errorf("DhcpDB not responding to Ping!")
-	}
-	brokers := strings.Split(*KafkaBrk, ",")
+	brokers = strings.Split(*KafkaBrk, ",")
 	if len(brokers) < 1 {
 		log.Fatalf("no Kafka brokers!")
 	}
-	topics := strings.Split(*KafkaTopic, ",")
+	topics = strings.Split(*KafkaTopic, ",")
 	if len(topics) < 1 {
 		log.Fatalf("no Kafka topics!")
 	}
 	kafka.StartProducer(brokers)
-	// nullify any uncaught errors
-	err = nil
 }
 
 func main() {
@@ -135,8 +110,8 @@ func main() {
 		for {
 			select {
 			case signal := <-sigs:
-				log.Debugf("RECEIVED SIGNAL: %s", signal)
 				if signal == syscall.SIGQUIT || signal == syscall.SIGKILL || signal == syscall.SIGTERM || signal == syscall.SIGINT {
+					log.Infof("RECEIVED SIGNAL: %s", signal)
 					AppCleanup()
 					os.Exit(1)
 				} else if signal == syscall.SIGHUP {
@@ -160,12 +135,12 @@ func AppCleanup() {
 	log.Error("Stopping Application")
 	kafka.StopConsumer()
 	kafka.Shutdown()
-	DBClient.Disconnect(context.TODO())
+	CoreDB.Client().Disconnect(context.TODO())
 	DhcpDB.Close()
 }
 
 func MessageHandler(topic string, timestamp time.Time, data []byte) {
-	log.Infof("Kafka message %v, %v, %v", topic, timestamp, string(data))
+	log.Infof("Kafka message %v, %v", topic, string(data))
 	switch topic {
 	case "provisionrequest":
 		// Create an empty request object
@@ -180,4 +155,18 @@ func MessageHandler(topic string, timestamp time.Time, data []byte) {
 			HandleProvision(request)
 		}
 	}
+}
+
+func SQLConnect() *sql.DB {
+	connect_str := *SQLUser + ":" + *SQLPass + "@tcp(" + *SQLHost + ":3306)/dhcp"
+	db, err := sql.Open("mysql", connect_str)
+	if err != nil {
+		log.Errorf("Connecting to DHCPDB - %v", err)
+	}
+	err = db.Ping()
+	if err != nil {
+		log.Errorf("Checking Connection to DHCPDB - %v", err)
+	}
+	log.Infof("Connected to DHCPDB")
+	return db
 }
