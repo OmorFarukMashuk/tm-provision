@@ -3,6 +3,7 @@ package netdb
 import (
 	"context"
 	"errors"
+
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -10,6 +11,18 @@ import (
 )
 
 var ()
+
+type Circuit struct {
+	ID          string `bson:"circuit_id"`    // A unique identifier for this circuit
+	Wirecentre  string `bson:"wirecentre"`    // The wirecentre this circuit originates at
+	RoutingNode string `bson:"routing_node"`  // THe Layer 3 device serving this circuit
+	AccessNode  string `bson:"access_node"`   // The name of the device this circuit is attached to
+	Interface   string `bson:"interface"`     // The interface on the access node
+	Unit        int    `bson:"onu,omitempty"` // The ONU or unit number
+	Subscriber  string `bson:"subscriber"`    // The subscriber ID ACCT-SUBS
+	Status      string `bson:"status"`        // Available, Assigned, Reserved
+
+}
 
 func AllocateCircuit(db *mongo.Database, wirecentre string, pon string, subscriber string) (circuit Circuit, assigned bool, err error) {
 	existingCircuit, err := GetSubscriberCircuit(db, subscriber)
@@ -111,16 +124,4 @@ func GetNextCircuit(db *mongo.Database, iface string) (circuit Circuit, err erro
 		err = errors.New("No circuits available for interface " + iface)
 	}
 	return
-}
-
-type Circuit struct {
-	ID          string `bson:"circuit_id"`    // A unique identifier for this circuit
-	Wirecentre  string `bson:wirecentre`      // The wirecentre this circuit originates at
-	RoutingNode string `bson:"routing_node"`  // THe Layer 3 device serving this circuit
-	AccessNode  string `bson:"access_node"`   // The name of the device this circuit is attached to
-	Interface   string `bson:"interface"`     // The interface on the access node
-	Unit        int    `bson:"onu,omitempty"` // The ONU or unit number
-	Subscriber  string `bson:"subscriber"`    // The subscriber ID ACCT-SUBS
-	Status      string `bson:"status"`        // Available, Assigned, Reserved
-
 }

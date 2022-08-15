@@ -1,0 +1,33 @@
+nate@prov02:~ % ls /usr/local/bin/internet*
+/usr/local/bin/internetprovision
+nate@prov02:~ % cat /etc/rc.conf | grep internet
+internetprovision_enable="YES"
+internetprovision_flags="-loglevel info -mcpusername provision -mcppassword Pr0vision -mcpurl https://mcp02.tor2.telmax.ca/api/restconf/ -mongouri mongodb://coredb.telmax.ca:27017 -kafka.brokers=\"kfk01.tor2.telmax.ca:9092, kfk02.tor2.telmax.ca:9092\""
+
+nate@prov02:~ % cat /usr/local/etc/rc.d/internetprovision
+#!/bin/sh
+#
+# PROVIDE: internetprovision
+# REQUIRE: networking syslog
+# KEYWORD:
+
+. /etc/rc.subr
+
+name="internetprovision"
+rcvar="internetprovision_enable"
+
+pidfile="/var/run/${name}.pid"
+logfile="/var/log/${name}.log"
+
+internetprovision_user="www"
+
+load_rc_config $name
+
+command="/usr/local/bin/internetprovision"
+
+start_cmd="/usr/sbin/daemon -S -u $internetprovision_user -p $pidfile -T $name -o $logfile $command $internetprovision_flags"
+
+: ${internetprovision_enable:=NO}
+
+run_rc_command "$1"
+nate@prov02:~ % 

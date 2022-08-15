@@ -9,10 +9,15 @@
 package main
 
 import (
+	"strings"
+
 	log "github.com/sirupsen/logrus"
 	//	"go.mongodb.org/mongo-driver/bson"
 
 	//"strings"
+	"strconv"
+	"time"
+
 	"bitbucket.org/telmaxdc/telmax-common"
 	"bitbucket.org/telmaxdc/telmax-common/devices"
 	"bitbucket.org/telmaxdc/telmax-common/maxbill"
@@ -20,9 +25,7 @@ import (
 	"bitbucket.org/telmaxdc/telmax-provision/kafka"
 	"bitbucket.org/telmaxdc/telmax-provision/mcp"
 	"bitbucket.org/telmaxdc/telmax-provision/netdb"
-	"bitbucket.org/telmaxdc/telmax-provision/structs"
-	"strconv"
-	"time"
+	telmaxprovision "bitbucket.org/telmaxdc/telmax-provision/structs"
 )
 
 // Accept and process a provision request and invoke the appropriate functions based on the request type
@@ -111,7 +114,15 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 			var productData maxbill.Product
 			var servicedata mcp.OLTService
 			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
+			if err != nil {
+				log.Errorf("getting maxbill product - %v", err)
+				result.Result = "getting maxbill product" + err.Error()
+				result.Success = false
+				kafka.SubmitResult(result)
+				continue
+			}
 			if productData.NetworkProfile != nil {
+				// this is where check routing_node
 				profile := *productData.NetworkProfile
 				if profile.AddressPool != "" {
 					pools[profile.AddressPool] = true
@@ -151,6 +162,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		// Get the ONT information
 
 		var hasONT bool
+		var isGpon bool
 		var activeONT mcp.ONTData
 
 		// Go through the devices in the request and see if any of them are AdTran ONTs  This could be modified for other qualifying devices
@@ -162,10 +174,22 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				log.Infof("Device definition is %v", definition)
 				// Adjust this if other devices or upstream interfaces need to be supported
 				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
-					log.Infof("Found ONT")
+					log.Infof("Found XGSPON ONT")
 					activeONT.Definition = definition
 					activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
-					hasONT = true
+					if err == nil {
+						hasONT = true
+					}
+				}
+				// need to add GPON functionality (np08122022)
+				if definition.Vendor == "AdTran" && definition.Upstream == "GPON" {
+					log.Infof("Found GPON ONT")
+					isGpon = true
+					activeONT.Definition = definition
+					activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
+					if err == nil {
+						hasONT = true
+					}
 				}
 
 			}
@@ -174,7 +198,6 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 		if hasONT {
 			var ONU int
 			var CP string
-
 			// Check for PON assignment - return an error if we don't have PON data yet
 			if PON == "" {
 				log.Errorf("Site %v does not have PON data", site)
@@ -182,6 +205,23 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				result.Success = false
 				kafka.SubmitResult(result)
 			} else {
+				// modify the PON interface if GPON
+				if isGpon {
+					tmp := strings.Split(PON, "-")
+					if len(tmp) < 2 {
+						log.Errorf("unexpected PON %v", PON)
+						result.Result = "unexpected PON " + PON
+						result.Success = false
+						kafka.SubmitResult(result)
+						return
+					}
+					// stouffville-olt01-pon01 then stouffville-olt01-gpon01
+					// OR sandiford-lab-olt01-pon01 then sandiford-lab-olt01-gpon01
+					// OR olt01-pon01 then olt01-gpon01
+					tmp[len(tmp)-1] = "g" + tmp[len(tmp)-1]
+					PON = strings.Join(tmp, "-")
+					//PON = tmp[0] + "-" + tmp[1] + "-g" + tmp[2]
+				}
 				// Assign a circuit and ONU ID
 				circuit, assigned, err := netdb.AllocateCircuit(NetDB, site.WireCentre, PON, subscriber)
 				if err != nil {
@@ -222,7 +262,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 				// Get DHCP leases for each service that needs one  This is based on the network profile, if a DHCP pool is listed
 				log.Warnf("Allocating addresses in DHCP pools %v", pools)
-				for pool, _ := range pools {
+				for pool := range pools {
 					reservations[pool], err = dhcpdb.DhcpAssign(circuit.RoutingNode, pool, subscriber)
 					var resulttext string
 					if err != nil {
@@ -235,10 +275,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					result.Result = resulttext
 					kafka.SubmitResult(result)
 				}
-
 				// Add services
 				for _, service := range services {
-
 					// You need the vlan ID from the reservation to know which VLAN the customer should be connected to
 					if service.ProductData.NetworkProfile.AddressPool != "" {
 						service.Vlan = reservations[service.ProductData.NetworkProfile.AddressPool].VlanID
@@ -251,14 +289,16 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 					case "Internet":
 						log.Infof("creating Internet service %v", service.ProductData.NetworkProfile.ProfileName)
 						if service.ProductData.NetworkProfile.ProfileName != "" {
+							// HARDCODED PORT NUMBER..?
 							err = mcp.CreateDataService(service.Name, subscriber+"-ONT", subscriber, service.ProductData.NetworkProfile.ProfileName, CP, service.Vlan, 1)
 						} else {
 							log.Errorf("Service %v does not have a network profile!", service.Name)
 						}
-						break
-						// Phone is done a different way.  That said, we could add a "data" service for IP phones at some point.
 					case "Phone":
-						break
+						// Phone is done a different way.  That said, we could add a "data" service for IP phones at some point.
+					default:
+						log.Infof("unexpected service type - %v", service.ProductData.Category)
+						continue
 					}
 					if err != nil {
 						log.Errorf("Problem creating service %v - %v", service.Name, err)
@@ -284,12 +324,10 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 						switch voicesvc.Domain {
 						case "residential.telmax.ca":
 							profile = "telmax-res-voice"
-							voicevlan = 202
-							break
+							voicevlan = 202 // HARDCODED VLAN... EEP
 						default:
 							profile = "telmax-res-voice"
-							voicevlan = 202
-							break
+							voicevlan = 202 // HARDCODED VLAN... EEP
 						}
 						var did DID
 						// Get the DID information from the telephone database
