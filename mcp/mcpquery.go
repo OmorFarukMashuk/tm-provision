@@ -7,11 +7,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -219,6 +220,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 
 	var deviceInfo MCPDeviceInfo
 	deviceInfo, err = GetDevice(token, device.DeviceContext.DeviceName)
+	// error logging is handled in called function, ignored
 	if deviceInfo.State == "deployed" || deviceInfo.State == "activated" {
 		log.Infof("Device already deployed!")
 		if ONT.Device.Serial != deviceInfo.Parameters.Serial {
@@ -238,7 +240,7 @@ func CreateONT(subscriber string, ONT ONTData, PON string, ONU int) error {
 	device.DeviceContext.ObjectParameters.Serial = ONT.Device.Serial
 	device.DeviceContext.ObjectParameters.OnuID = ONU
 	device.DeviceContext.UpstreamInterface = PON
-	log.Infof("Creating ONT object %v", device.DeviceContext.DeviceName)
+	log.Debugf("Creating ONT object %v", device.DeviceContext.DeviceName)
 	mcpresult, err = MCPRequestWait(token, "adtran-cloud-platform-orchestration:create", device)
 	log.Debugf("MCP result is %v", mcpresult)
 	if err != nil {

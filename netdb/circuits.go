@@ -25,6 +25,7 @@ type Circuit struct {
 }
 
 func AllocateCircuit(db *mongo.Database, wirecentre string, pon string, subscriber string) (circuit Circuit, assigned bool, err error) {
+	// ie "ACCT01093-SUBS008"
 	existingCircuit, err := GetSubscriberCircuit(db, subscriber)
 	if existingCircuit.ID != "" {
 		assigned = false
