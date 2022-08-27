@@ -116,7 +116,8 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 	// see which products have a network profile to add them as a service
 	for _, product := range request.Products {
-		productData, err := maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
+		var productData maxbill.Product
+		productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
 		if err != nil {
 			log.Errorf("getting maxbill product (%s) - %v", product.ProductCode, err)
 			result.Result = fmt.Sprintf("Problem getting maxbill product (%s) - %v", product.ProductCode, err)
@@ -369,65 +370,78 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 // Unprovision services - used for cancelling a customer, or backing out provisioning (wrong PON or other re-do)
 // This is similar to provision, but a bit simpler and only removes the services.  Could also apply for a cancellation
 // of a subset of services, but not the whole thing.
+// Does not unprovision Voice.
 func UnProvisionServices(request telmaxprovision.ProvisionRequest) {
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
 		Time:      time.Now(),
 	}
-
 	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
-		log.Errorf("Problem getting subscriber %v", err)
-		result.Result = err.Error()
+		log.Errorf("getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
+		result.Result = fmt.Sprintf("Problem getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
 		kafka.SubmitResult(result)
-
+		return
 	}
-	if subscribe.NetworkType == "Fibre" {
-		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
-		//		var site Site
-		var circuit netdb.Circuit
-
-		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
-		// Make a list of the services we need to remove  Mostly, we just need the name
-		for _, product := range request.Products {
-			var productData maxbill.Product
-			//			var servicedata OLTService
-			var success bool
-			productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
-			if productData.NetworkProfile != nil {
-				name := subscriber + "-" + product.SubProductCode
-				// If there was a DHCP pool, go and release the address back to the pool
-				if productData.NetworkProfile.AddressPool != "" {
-					success, err = dhcpdb.DhcpRelease(circuit.RoutingNode, productData.NetworkProfile.AddressPool, subscriber)
-					if err != nil {
-						log.Errorf("Problem getting subscribed product details %v", err)
-						result.Result = err.Error()
-						result.Success = false
-						kafka.SubmitResult(result)
-					} else if success == true {
-						result.Result = "Removed DHCP lease from pool " + productData.NetworkProfile.AddressPool
-					}
-				}
-				// Delete the service object
-				err = mcp.DeleteService(name)
+	if subscribe.NetworkType != "Fibre" {
+		log.Debugf("nothing to do here")
+		return
+	}
+	subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+	//		var site Site
+	//var circuit netdb.Circuit
+	circuit, err := netdb.GetSubscriberCircuit(CoreDB, subscriber)
+	if err != nil {
+		log.Errorf("getting subscriber circuit (%s) - %v", subscriber, err)
+		result.Result = fmt.Sprintf("Problem getting subscriber circuit (%s) - %v", subscriber, err)
+		kafka.SubmitResult(result)
+		return
+	}
+	// Make a list of the services we need to remove  Mostly, we just need the name
+	for _, product := range request.Products {
+		var productData maxbill.Product
+		//			var servicedata OLTService
+		productData, err = maxbill.GetProduct(CoreDB, "product_code", product.ProductCode)
+		if err != nil {
+			log.Errorf("getting maxbill product (%s) - %v", product.ProductCode, err)
+			result.Result = fmt.Sprintf("Problem getting maxbill product (%s) - %v", product.ProductCode, err)
+			kafka.SubmitResult(result)
+			continue
+		}
+		name := subscriber + "-" + product.SubProductCode
+		var success bool
+		if productData.NetworkProfile != nil {
+			// If there was a DHCP pool, go and release the address back to the pool
+			if productData.NetworkProfile.AddressPool != "" {
+				success, err = dhcpdb.DhcpRelease(circuit.RoutingNode, productData.NetworkProfile.AddressPool, subscriber)
 				if err != nil {
-					log.Errorf("Problem deleting service %v %v", name, err)
-					result.Result = err.Error()
+					log.Errorf("releasing subscribed circuit DHCP (%s) %v", productData.NetworkProfile.AddressPool, err)
+					result.Result = fmt.Sprintf("Problem releasing subscribed circuit DHCP (%s) %v", productData.NetworkProfile.AddressPool, err)
 					result.Success = false
 					kafka.SubmitResult(result)
-				} else if success == true {
-					result.Success = true
-					result.Result = "Removed service " + name
+				} else if success {
+					log.Infof("removed DHCP lease from pool (%s)", productData.NetworkProfile.AddressPool)
+				} else {
+					log.Errorf("no error but was unsuccessful removing DHCP lease from pool (%s)", productData.NetworkProfile.AddressPool)
 				}
-				kafka.SubmitResult(result)
-
 			}
 		}
-
-	} else {
-		log.Info("Not a fibre customer")
+		// Moved this block out of the NetworkProfile section to allow unprovisioning Voice services.
+		// Delete the service object
+		err = mcp.DeleteService(name)
+		if err != nil {
+			log.Errorf("deleting service (%s) - %v", name, err)
+			result.Result = fmt.Sprintf("Problem deleting service (%s) - %v", name, err)
+			result.Success = false
+		} else {
+			result.Success = true
+			result.Result = fmt.Sprintf("Removed service (%s)", name)
+			if success {
+				result.Result += " and released DHCP binding."
+			}
+		}
+		kafka.SubmitResult(result)
 	}
-	return
 }
 
 // Remove the ONT and interfaces
@@ -436,43 +450,60 @@ func DeleteONT(request telmaxprovision.ProvisionRequest) {
 		RequestID: request.RequestID,
 		Time:      time.Now(),
 	}
-
 	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
-		log.Errorf("Problem getting subscriber %v", err)
-		result.Result = err.Error()
+		log.Errorf("getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
+		result.Result = fmt.Sprintf("Problem getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
 		kafka.SubmitResult(result)
-
+		return
 	}
-	if subscribe.NetworkType == "Fibre" {
-		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
-		name := subscriber + "-ONT"
-		//		var site Site
-		var circuit netdb.Circuit
-		// Get the circuit so we can clean it up properly
-		circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
-		var ONT mcp.ONTData
-		// We are assuming a 622V in all cases.  There is no harm if the interfaces don't exist
-		ONT.Definition.EthernetPorts = 2
-		ONT.Definition.PotsPorts = 2
-		err = mcp.DeleteONT(subscriber, ONT)
+	if subscribe.NetworkType != "Fibre" {
+		log.Debugf("nothing to do here")
+		return
+	}
+	subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+	name := subscriber + "-ONT"
+	//		var site Site
+	var circuit netdb.Circuit
+	// Get the circuit so we can clean it up properly
+	circuit, err = netdb.GetSubscriberCircuit(CoreDB, subscriber)
+	if err != nil {
+		log.Errorf("getting subscriber circuit (%s) - %v", subscriber, err)
+		result.Result = fmt.Sprintf("Problem getting subscriber circuit (%s) - %v", subscriber, err)
+		kafka.SubmitResult(result)
+		return
+	}
+	var ONT mcp.ONTData
+	for _, device := range request.Devices {
+		definition, err := devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
 		if err != nil {
-			log.Errorf("Problem deleting ONT %v %v", name, err)
-			result.Result = err.Error()
-			result.Success = false
+			log.Errorf("getting device definition (%s) - %v", device.DefinitionCode, err)
+			result.Result = fmt.Sprintf("Problem getting device definition (%s) - %v", device.DefinitionCode, err)
 			kafka.SubmitResult(result)
-		} else {
-			// Release the circuit back to the pool
-			netdb.ReleaseCircuit(CoreDB, circuit.ID)
+			continue
+		}
+		if definition.Vendor == "AdTran" {
+			ONT.Definition = definition
+		}
+	}
+	err = mcp.DeleteONT(subscriber, ONT)
+	if err != nil {
+		log.Errorf("deleting ONT (%s) %v", name, err)
+		result.Result = fmt.Sprintf("Problem deleting ONT (%s) %v", name, err)
+		result.Success = false
+	} else {
+		// Release the circuit back to the pool
+		err = netdb.ReleaseCircuit(CoreDB, circuit.ID)
+		if err == nil {
 			result.Success = true
 			result.Result = "Removed service " + name
+		} else {
+			log.Errorf("releasing circuit (%s) - %v", circuit.ID, err)
+			result.Result = fmt.Sprintf("releasing circuit (%s) - %v", circuit.ID, err)
+			result.Success = false
 		}
-		kafka.SubmitResult(result)
-
-	} else {
-		log.Info("Not a fibre customer")
 	}
-	return
+	kafka.SubmitResult(result)
 }
 
 // Handle an ONT swap through update mechanisms and reflow job
@@ -481,57 +512,77 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 		RequestID: request.RequestID,
 		Time:      time.Now(),
 	}
-
 	subscribe, err := maxbill.GetSubscribe(CoreDB, request.AccountCode, request.SubscribeCode)
 	if err != nil {
-		log.Errorf("Problem getting subscriber %v", err)
-		result.Result = err.Error()
+		log.Errorf("getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
+		result.Result = fmt.Sprintf("Problem getting subscriber (%s)(%s) - %v", request.AccountCode, request.SubscribeCode, err)
 		kafka.SubmitResult(result)
-
+		return
 	}
-	if subscribe.NetworkType == "Fibre" {
-		subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
-		//		var site Site
-		//		var PON string
+	if subscribe.NetworkType != "Fibre" {
+		log.Debugf("nothing to do here")
+		return
+	}
+	subscriber := subscribe.AccountCode + "-" + subscribe.SubscribeCode
+	//		var site Site
+	//		var PON string
 
-		// Get the ONT information
+	// Get the ONT information
 
-		var hasONT bool
-		var activeONT mcp.ONTData
-		for _, device := range request.Devices {
-			log.Infof("Device data is %v", device)
-			if device.DeviceType == "AccessTerminal" {
-				var definition devices.DeviceDefinition
-				definition, err = devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
-				log.Infof("Device definition is %v", definition)
-				if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
-					log.Infof("Found ONT")
-					activeONT.Definition = definition
-					activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
-					hasONT = true
-				}
-
-			}
-		}
-		// Update ONT record
-		if hasONT {
-
-			// Update the ONT record in MCP
-			err = mcp.UpdateONT(subscriber, activeONT)
+	var hasONT bool
+	var activeONT mcp.ONTData
+	for _, device := range request.Devices {
+		log.Debugf("Device data is %v", device)
+		if device.DeviceType == "AccessTerminal" {
+			var definition devices.DeviceDefinition
+			definition, err = devices.GetDeviceDefinition(CoreDB, "devicedefinition_code", device.DefinitionCode)
 			if err != nil {
-				result.Result = err.Error()
+				log.Errorf("getting device definition (%s) - %v", device.DefinitionCode, err)
+				result.Result = fmt.Sprintf("Problem getting device definition (%s) - %v", device.DefinitionCode, err)
 				kafka.SubmitResult(result)
-				return
-			} else {
-				result.Result = "Updated ONT object and queued re-flow job"
-				result.Success = true
-				kafka.SubmitResult(result)
+				continue
 			}
-
+			log.Debugf("Device definition is %v", definition)
+			if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
+				log.Infof("Found XGS-PON ONT")
+				activeONT.Definition = definition
+				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
+				if err != nil {
+					log.Errorf("getting device (%s) - %v", device.DeviceCode, err)
+					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", device.DeviceCode, err)
+					kafka.SubmitResult(result)
+					continue
+				}
+				hasONT = true
+			}
+			if definition.Vendor == "AdTran" && definition.Upstream == "GPON" {
+				log.Infof("Found GPON ONT")
+				activeONT.Definition = definition
+				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
+				if err != nil {
+					log.Errorf("getting device (%s) - %v", device.DeviceCode, err)
+					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", device.DeviceCode, err)
+					kafka.SubmitResult(result)
+					continue
+				}
+				hasONT = true
+			}
 		}
-
-	} else {
-		log.Info("Not a fibre customer")
 	}
-	return
+	// Update ONT record
+	if hasONT {
+		// Update the ONT record in MCP
+		err = mcp.UpdateONT(subscriber, activeONT)
+		if err != nil {
+			log.Errorf("updating ONT (%s) - %v", subscriber, err)
+			result.Result = fmt.Sprintf("Problem updating ONT (%s) - %v", subscriber, err)
+			kafka.SubmitResult(result)
+			return
+		} else {
+			log.Infof("Updated ONT (%s) object and queued re-flow job", subscriber)
+			result.Result = fmt.Sprintf("Updated ONT (%s) object and queued re-flow job", subscriber)
+			result.Success = true
+			kafka.SubmitResult(result)
+		}
+	}
 }

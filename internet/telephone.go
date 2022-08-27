@@ -3,10 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -52,7 +53,7 @@ type DID struct {
 	UpdatedTime    time.Time    `json:"updated,omitempty" bson:"updated,omitempty"`
 	PortedTime     time.Time    `json:"ported,omitempty" bson:"ported,omitempty"`
 	PortOutTime    time.Time    `json:"portout,omitempty" bson:"portout,omitempty"`
-	AgingTime      time.Time    `json:"agingtime,omitempty" bson:"agingtime,omitempty":`
+	AgingTime      time.Time    `json:"agingtime,omitempty" bson:"agingtime,omitempty"`
 	Origin         string       `json:"origin,omitempty" bson:"origin,omitempty"`
 }
 
@@ -72,8 +73,8 @@ type TelUserData struct {
 type BillingData struct {
 	AccountCode    string    `json:"account_code" bson:"account_code"`
 	SubscribeCode  string    `json:"subscribe_code" bson:"subscribe_code"`
-	ProductCode    string    `json:"product_code" bson: "product_code"`
-	ProductName    string    `json:"product_name" bson: "product_name"`
+	ProductCode    string    `json:"product_code" bson:"product_code"`
+	ProductName    string    `json:"product_name" bson:"product_name"`
 	RegularPrice   float64   `json:"regular_price" bson:"regular_price"`
 	DiscountPrice  float64   `json:"discount_price" bson:"discount_price"`
 	Status         string    `json:"status" bson:"subscribe_product_status"`
