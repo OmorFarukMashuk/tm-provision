@@ -12,6 +12,7 @@ var ()
 type ONTData struct {
 	Device     devices.Device
 	Definition devices.DeviceDefinition
+	IsGpon     bool
 }
 
 type OLTService struct {

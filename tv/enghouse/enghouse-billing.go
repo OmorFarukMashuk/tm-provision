@@ -1,6 +1,9 @@
 package enghouse
 
 import (
+	"fmt"
+	"strings"
+
 	"bitbucket.org/telmaxdc/telmax-common"
 	"bitbucket.org/telmaxdc/telmax-common/devices"
 	"bitbucket.org/telmaxdc/telmax-common/maxbill"
@@ -11,12 +14,12 @@ import (
 	"encoding/xml"
 	"errors"
 	"flag"
-	"fmt"
-	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/mongo"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	//log "github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var (
@@ -34,15 +37,27 @@ var (
 	}
 )
 
-func EnghouseRequest(accountdata EngTrans, requestID string) error {
-	var err error
+//func QueryAccount(accountCode, subscribeCode, deviceId string) string {
 
+/*
+	<?xml version="1.0" encoding="UTF-8"?>
+	<!-- Espial transaction header to provide MSO context and namespace for
+	rest of payload -->
+	<digeoAPI partnerID="[ESPIALPartnerID]" MSOCode="[MSO]"
+	version="1.0.0">
+	<transaction action="query.account" MSOAccountID="[AccountID]"
+	transID=”[TransactionID]” transTime=”[Timestamp]”/>
+	</digeoAPI>
+*/
+//}
+
+func EnghouseRequest(accountdata EngTrans, requestID string) error {
 	requestdate := time.Now().Format("20060102150405")
-	log.Infof("Request date string is %v", requestdate)
-	accountdata.TransID = requestID
+	//log.Debugf("Request date (%v)", requestdate)
+	accountdata.TransId = requestID
 	accountdata.TransTime = requestdate
 	transaction := Enghouse{
-		MSOCode: "TELMAX",
+		MsoCode: "TELMAX",
 		Version: "1.0.1",
 		Transaction: []EngTrans{
 			accountdata,
@@ -58,12 +73,11 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 			Timeout:   10 * time.Second,
 		}
 	} else {
-
 		//   Changed from skipping TLS, to checking EngHouse Self-signed Cert
 		rootCAPool := x509.NewCertPool()
 		rootCA, err := ioutil.ReadFile(*RootCertificatePath)
 		if err != nil {
-			log.Fatalf("reading cert failed : %v", err)
+			return err
 		}
 		rootCAPool.AppendCertsFromPEM(rootCA)
 		client = http.Client{
@@ -74,102 +88,46 @@ func EnghouseRequest(accountdata EngTrans, requestID string) error {
 			},
 		}
 	}
-	// Create this in a different function.  Use this one just to do the API call.
-	/*
-		xml_string := Enghouse{
-			MSOCode: "TELMAX",
-			Version: "1.0.0",
-			Transaction: []EngTrans{
-				{
-					Action:         "account.update",
-					MSOAccountID:   "1495738",
-					TransID:        "103085",
-					TransTime:      "20200616181100",
-					Account_status: "ACTIVE",
-					MSO_account_id: "tim-test-2",
-					//        	Old_mso_account_id: " ",
-					MSO_market_id: "Telmax",
-					First_name:    "Tim",
-					Country:       "CA",
-					//        	Headend_id:	"PHE_TELMAX",
-					Channelmap_id: "CMAP_TELMAX_UNICAST_RESIDENTIAL",
-					Service: []EngService{
-						{
-							Service_codes: "IPTV_NDVR_50",
-						},
-					}, // `xml:"service_codes"`
-					Devices: []EngDevices{
-						{
-							//			Temp:			"",
-							Device: []EngDevice{
-								{
-									HardwareDeviceID: "0003E6F6FDA6",
-								},
-							}, // `xml:"device"`
-						}, // `xml:"devices"`
-					}, // `xml:"EngTrans"`
-				},
-			},
-		}
-	*/
-	var xmlStr []byte
-
-	xmlStr, err = xml.Marshal(transaction)
-	//    if err != nil{
-	fmt.Println(err)
-	//    }
-	//	myString := []byte(xml.Header + string(xmlStr))
+	xmlStr, err := xml.Marshal(transaction)
+	if err != nil {
+		return err
+	}
 	xmlStr2 := append([]byte(xml.Header), xmlStr...)
-	//    fmt.Printf("%s\n", myString)
-	//	fmt.Println(xmlStr)
-
-	//xmlStr3 := bytes.NewBuffer(xmlStr2)
-	//log.Debugf("%s\n", xmlStr2)
-
+	fmt.Println(string(xmlStr2))
 	// Main Server
-	var req *http.Request
-	req, err = http.NewRequest("POST", EHURL, bytes.NewBuffer(xmlStr2))
-
+	req, err := http.NewRequest("POST", EHURL, bytes.NewBuffer(xmlStr2))
+	if err != nil {
+		return err
+	}
 	//  Testing Server
 	//    req, err := http.NewRequest("POST", "https://billing-stg.moxi.com/billing/UpdateAccount/1?MSO=TELMAX", bytes.NewBuffer([]byte(myString)))
 	req.Header.Add("Content-Type", "text/plain")
 	//    	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 	req.SetBasicAuth(EHusername, EHpasswd)
 	resp, err := client.Do(req)
-	log.Infof("response is %v", resp)
-	if resp != nil {
-
-		log.Debugf("http response status: %v %v", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-	//	fmt.Println(resp)
-	//	fmt.Println(err)
 	if err != nil {
-		log.Error(err)
-	} else {
-		if resp.StatusCode != 200 {
-			bodyData, _ := ioutil.ReadAll(resp.Body)
-			bodyText := string(bodyData)
-			//		log.Errorf("Problem with API call to Enghouse %v", bodyText)
-			err = errors.New(bodyText)
-		} else {
-			log.Info("API Call successful!")
-		}
+		return err
 	}
-
-	// Handle the error somehow
-
+	if resp == nil {
+		return errors.New("empty response")
+	}
+	if resp.StatusCode != 200 {
+		bodyData, _ := ioutil.ReadAll(resp.Body)
+		bodyText := string(bodyData)
+		err = errors.New(resp.Status + "\n" + bodyText)
+	}
 	return err
-
 }
 
 func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode string) (accountdata EngTrans, err error) {
-	timestring := "" // Use some time functions to create this value
 
 	// Get the subscribe record - this has the essential details in it
-	var subscribe maxbill.Subscribe
-	subscribe, err = maxbill.GetSubscribe(CoreDB, accountcode, subscribecode)
+	subscribe, err := maxbill.GetSubscribe(CoreDB, accountcode, subscribecode)
+	if err != nil {
+		return
+	}
 	if subscribe.SubscribeCode == "" {
-		err = errors.New("Subscribe not found!")
+		err = errors.New("subscribe not found")
 		return
 	}
 	if subscribe.TVUsername == "" {
@@ -177,20 +135,23 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		subscribe.Update(CoreDB)
 	}
 
-	// Rough in the strcuture with the data we know.
+	// Typical defaults
 	accountdata = EngTrans{
-		Action:       "account.update",
-		MSOAccountID: subscribe.AccountCode + subscribe.SubscribeCode,
-		// How do you want to create a transaction ID?
-		//TransID:
-		TransTime:      timestring,
-		Account_status: "ACTIVE", // Might not always be active, but this is easily fixed
-		MSO_account_id: subscribe.AccountCode + subscribe.SubscribeCode,
-		MSO_market_id:  "Telmax",
-		First_name:     subscribe.FirstName,
-		PostalCode:     subscribe.Address.PostalCode,
-		Country:        "CA",
-		Channelmap_id:  "CMAP_TELMAX_UNICAST_RESIDENTIAL",
+		Action:        "account.update",
+		MSOACCOUNTID:  subscribe.AccountCode + subscribe.SubscribeCode,
+		TransId:       "",       // added by request
+		TransTime:     "",       // added my request
+		AccountStatus: "ACTIVE", // Might not always be active, but this is easily fixed
+		MsoAccountId:  subscribe.AccountCode + subscribe.SubscribeCode,
+		MsoMarketId:   "Telmax",
+		FirstName:     subscribe.FirstName,
+		PostalCode:    strings.TrimSpace(subscribe.Address.PostalCode), // this field should be format checked
+		//OldMsoAccountId: "", // not needed
+		MsoHeadendId: "PHE_TELMAX_CACHE", // hard-code the CACHE 03302023
+		//ChannelMapId: "CMAP_TELMAX_UNICAST_RESIDENTIAL", //
+		//MsoHeadendId: "Telmax - Cache",
+		//ChannelMapId: "Telmax Cache",
+		Country: "CA",
 	}
 
 	// Get the channels that this account / subscribe combination have, and sort by TV channels.  We may need to get packages too
@@ -229,13 +190,22 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 
 	// Iterate over the channels.  If they have an Enghouse code, push onto the array
 	channels, err = maxbill.GetServices(CoreDB, channel_filters)
+	if err != nil {
+		return
+	}
 	packages, err = maxbill.GetServices(CoreDB, package_filters)
+	if err != nil {
+		return
+	}
 
 	channels = append(channels, packages...) // Add the packgaes to the channels
 
 	for _, channel := range channels {
 		var productData maxbill.Product
 		productData, err = maxbill.GetProduct(CoreDB, "product_code", channel.ProductCode)
+		if err != nil {
+			return
+		}
 		if productData.EnghouseCode != nil && (channel.Status == "New" || channel.Status == "Activate") {
 			accountdata.Service = append(accountdata.Service, EngService{
 				Service_codes: *productData.EnghouseCode,
@@ -268,10 +238,13 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 		},
 	}
 	tv_devices, err = devices.GetDevices(CoreDB, device_filters)
+	if err != nil {
+		return
+	}
 	var deviceList []EngDevice
 	for _, device := range tv_devices {
 		deviceList = append(deviceList, EngDevice{
-			HardwareDeviceID: device.Mac, // Maybe format this to make sure it is upper / no special chars, etc.
+			HardwareDeviceId: device.Mac, // Maybe format this to make sure it is upper / no special chars, etc.
 		})
 	}
 	if len(deviceList) > 0 {
@@ -279,7 +252,7 @@ func EnghouseAccount(CoreDB *mongo.Database, accountcode string, subscribecode s
 			Device: deviceList,
 		})
 	}
-	log.Infof("Account Data for EngHouse is %v", accountdata)
+	//log.Infof("Account Data for EngHouse is %v", accountdata)
 	return
 
 }

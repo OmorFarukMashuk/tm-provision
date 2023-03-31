@@ -10,23 +10,27 @@ import (
 	//"bson"
 	"encoding/json"
 	"flag"
+
 	//	"github.com/Shopify/sarama"
-	"bitbucket.org/telmaxdc/telmax-common"
 	"context"
+
+	"bitbucket.org/telmaxdc/telmax-common"
 	log "github.com/sirupsen/logrus"
+
 	//	"go.mongodb.org/mongo-driver/bson"
-	"bitbucket.org/telmaxdc/telmax-provision/kafka"
-	"bitbucket.org/telmaxdc/telmax-provision/structs"
-	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	telmaxprovision "bitbucket.org/telmaxdc/telmax-provision/structs"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var (
-	LogLevel   = flag.String("loglevel", "info", "Log Level")
+	LogLevel   = flag.Int("log", 4, "Set logging filter: [0:Panic], [1:Fatal], [2:Error], [3:Warn], [4:Info], [5:Debug], [6:Trace]")
 	TZLocation *time.Location
 	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
 	KafkaBrk   = flag.String("kafka.brokers", "kfk01.tor2.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
@@ -47,8 +51,12 @@ var (
 
 func init() {
 	flag.Parse()
-	lvl, _ := log.ParseLevel(*LogLevel)
-	log.SetLevel(lvl)
+	// parse log level as bit
+	lvl := uint32(*LogLevel)
+	if lvl > 6 {
+		lvl = 6
+	}
+	log.SetLevel(log.Level(lvl))
 	TZLocation, _ = time.LoadLocation("America/Toronto")
 
 	// Connect to the database

@@ -1,16 +1,14 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
-	//	"go.mongodb.org/mongo-driver/bson"
-	//	"bitbucket.org/telmaxdc/telmax-common"
-	"bitbucket.org/telmaxdc/telmax-common/devices"
-
-	//"strings"
-	"bitbucket.org/telmaxdc/telmax-provision/kafka"
-	"bitbucket.org/telmaxdc/telmax-provision/structs"
-	"telmax-provision/tv/enghouse"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"bitbucket.org/telmaxdc/telmax-common/devices"
+	"bitbucket.org/telmaxdc/telmax-provision/kafka"
+	telmaxprovision "bitbucket.org/telmaxdc/telmax-provision/structs"
+	"bitbucket.org/telmaxdc/telmax-provision/tv/enghouse"
 )
 
 // Determine what sort of request it was
@@ -103,8 +101,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 
 func CancelRequest(request telmaxprovision.ProvisionRequest) {
 	accountdata, err := enghouse.EnghouseAccount(CoreDB, request.AccountCode, request.SubscribeCode)
-	//	if len(accountdata.Service) > 0 {
-	accountdata.Account_status = "REMOVED"
+	accountdata.AccountStatus = "REMOVED"
 	err = enghouse.EnghouseRequest(accountdata, request.RequestID)
 	result := telmaxprovision.ProvisionResult{
 		RequestID: request.RequestID,
@@ -118,9 +115,6 @@ func CancelRequest(request telmaxprovision.ProvisionRequest) {
 		result.Result = "Enghouse cancellation accepted"
 	}
 	kafka.SubmitResult(result)
-	//	} else {
-	//		log.Infof("No Enghouse channels for account %v subscribe %v", request.AccountCode, request.SubscribeCode)
-	//	}
 }
 
 func ResultException(result telmaxprovision.ProvisionResult, tag string, alert bool, err error) {

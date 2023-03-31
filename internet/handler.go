@@ -160,9 +160,10 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	}
 	// the basic ONT information
 	var (
-		hasONT    bool
-		isGpon    bool
+		//hasONT    bool
+		//isGpon    bool
 		activeONT mcp.ONTData
+		allONT    []mcp.ONTData
 	)
 	// Looks for any ONT in the device record, RG are handled elsewhere
 	for _, device := range request.Devices {
@@ -177,41 +178,36 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 				continue
 			}
 			log.Debugf("device definition is %v", definition)
+			var thisONT mcp.ONTData
 			// Adjust this if other devices or upstream interfaces need to be supported
-			switch {
-			case definition.Vendor == "AdTran" && definition.Upstream == "XGSPON":
-				log.Debugf("Found XGSPON ONT")
-				activeONT.Definition = definition
-				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
-				if err == nil {
-					hasONT = true
+			if definition.Vendor == "AdTran" {
+				if definition.Upstream == "XGSPON" {
+					log.Debugf("Found XGSPON ONT")
+				} else if definition.Upstream == "GPON" {
+					log.Debugf("Found GPON ONT")
+					thisONT.IsGpon = true
 				} else {
+					continue
+				}
+				thisONT.Definition = definition
+				thisONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
+				if err != nil {
 					log.Errorf("getting device (%s) - %v", definition.Model, err)
 					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", definition.Model, err)
 					kafka.SubmitResult(result)
 					continue
 				}
-			case definition.Vendor == "AdTran" && definition.Upstream == "GPON":
-				log.Debugf("Found GPON ONT")
-				isGpon = true
-				activeONT.Definition = definition
-				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
-				if err == nil {
-					hasONT = true
-				} else {
-					log.Errorf("getting device (%s) - %v", definition.Model, err)
-					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", definition.Model, err)
-					kafka.SubmitResult(result)
-					continue
-				}
+				allONT = append(allONT, thisONT)
 			}
 		}
 	}
 	// return if no ONT found
-	if !hasONT {
+	if len(allONT) < 1 {
 		log.Debugf("no ONT in device provision request, nothing to do")
 		return
 	}
+	// if more than one ONT, the Latest one us used.
+	activeONT = allONT[len(allONT)-1]
 
 	var (
 		ONU int
@@ -246,7 +242,7 @@ func NewRequest(request telmaxprovision.ProvisionRequest) {
 	// modify the PON interface if GPON... arbitrary naming convention
 	// messes up the Circuit Allocation! must be altered after
 	// and not reflected in the network.access_ports DB
-	if isGpon {
+	if activeONT.IsGpon {
 		tmp := strings.Split(PON, "-")
 		if len(tmp) < 2 {
 			log.Errorf("unexpected PON (%s)", PON)
@@ -529,8 +525,11 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 
 	// Get the ONT information
 
-	var hasONT bool
-	var activeONT mcp.ONTData
+	var (
+		//hasONT bool
+		//activeONT mcp.ONTData
+		allONT []mcp.ONTData
+	)
 	for _, device := range request.Devices {
 		log.Debugf("Device data is %v", device)
 		if device.DeviceType == "AccessTerminal" {
@@ -542,35 +541,36 @@ func DeviceSwap(request telmaxprovision.ProvisionRequest) {
 				kafka.SubmitResult(result)
 				continue
 			}
+			var thisONT mcp.ONTData
 			log.Debugf("Device definition is %v", definition)
-			if definition.Vendor == "AdTran" && definition.Upstream == "XGSPON" {
-				log.Infof("Found XGS-PON ONT")
-				activeONT.Definition = definition
-				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
+			if definition.Vendor == "AdTran" {
+				if definition.Upstream == "XGSPON" {
+					log.Debugf("Found XGSPON ONT")
+				} else if definition.Upstream == "GPON" {
+					log.Debugf("Found GPON ONT")
+					thisONT.IsGpon = true
+				} else {
+					continue
+				}
+				thisONT.Definition = definition
+				thisONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
 				if err != nil {
-					log.Errorf("getting device (%s) - %v", device.DeviceCode, err)
-					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", device.DeviceCode, err)
+					log.Errorf("getting device (%s) - %v", definition.Model, err)
+					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", definition.Model, err)
 					kafka.SubmitResult(result)
 					continue
 				}
-				hasONT = true
-			}
-			if definition.Vendor == "AdTran" && definition.Upstream == "GPON" {
-				log.Infof("Found GPON ONT")
-				activeONT.Definition = definition
-				activeONT.Device, err = devices.GetDevice(CoreDB, "device_code", device.DeviceCode)
-				if err != nil {
-					log.Errorf("getting device (%s) - %v", device.DeviceCode, err)
-					result.Result = fmt.Sprintf("Problem getting device (%s) - %v", device.DeviceCode, err)
-					kafka.SubmitResult(result)
-					continue
-				}
-				hasONT = true
+				allONT = append(allONT, thisONT)
 			}
 		}
 	}
-	// Update ONT record
-	if hasONT {
+	// return if no ONT found
+	if len(allONT) < 1 {
+		log.Debugf("no ONT in device provision request, nothing to do")
+		return
+	}
+	// all ONT will attempt to be removed
+	for _, activeONT := range allONT {
 		// Update the ONT record in MCP
 		err = mcp.UpdateONT(subscriber, activeONT)
 		if err != nil {

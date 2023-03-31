@@ -31,8 +31,8 @@ var (
 	logLevel   = flag.Int("log", 4, "Set logging filter: [0:Panic], [1:Fatal], [2:Error], [3:Warn], [4:Info], [5:Debug], [6:Trace]")
 	TZLocation *time.Location
 	KafkaTopic = flag.String("kafka.topic", "provisionrequest", "Kafka topic to consume from")
-	KafkaBrk   = flag.String("kafka.brokers", "kfk01.tor2.telmax.ca:9092, kfk02.tor2.telmax.ca:9092, kfk03.tor2.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
-	KafkaGroup = flag.String("kafka.group", "eero", "Kafka group id")                                                                                                      // Change this to your provision subsystem name
+	KafkaBrk   = flag.String("kafka.brokers", "kfk01.tor2.telmax.ca:9092", "Kafka brokers list separated by commas") // Temporary default
+	KafkaGroup = flag.String("kafka.group", "eero", "Kafka group id")                                                // Change this to your provision subsystem name
 
 	MongoURI       = flag.String("mongo.uri", "mongodb://coredb.telmax.ca:27017", "MongoDB URL for telmax database")
 	MongoUser      = flag.String("mongo.user", "maxcoredb", "MongoDB User")
